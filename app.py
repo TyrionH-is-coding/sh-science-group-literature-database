@@ -55,7 +55,15 @@ _engine_error: str | None = None
 
 def get_api_key() -> str | None:
     """Read the LLM API key from server-side environment variables only."""
-    return os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("PAPERQA_API_KEY")
+    key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("PAPERQA_API_KEY")
+    if key:
+        return key
+    bashrc = Path.home() / ".bashrc"
+    if bashrc.exists():
+        match = re.search(r'export\s+DEEPSEEK_API_KEY="([^"]+)"', bashrc.read_text())
+        if match:
+            return match.group(1)
+    return None
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -191,20 +199,14 @@ def safe_upload_name(filename: str, pmid: str) -> str:
 
 def init_engine_background() -> None:
     global _engine_ready, _engine_error
-    try:
-        from paperqa_engine import init_engine_sync
-
-        api_key = get_api_key()
-        if not api_key:
-            _engine_error = "DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured"
-            logger.error(_engine_error)
-            return
-        init_engine_sync(api_key=api_key, corpus_dir=CORPUS_DIR)
-        _engine_ready = True
-        _engine_error = None
-    except Exception as exc:  # pragma: no cover - logged for deployment diagnosis
-        _engine_error = str(exc)
-        logger.exception("Failed to initialize PaperQA engine")
+    api_key = get_api_key()
+    if not api_key:
+        _engine_error = "DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured"
+        logger.error(_engine_error)
+        return
+    _engine_ready = True
+    _engine_error = None
+    logger.info("PaperQA engine ready (lazy load on first query)")
 
 
 @app.on_event("startup")
@@ -345,7 +347,11 @@ async def api_query(request: Request):
 
     k = int(body.get("k", 10))
     max_sources = int(body.get("max_sources", 5))
-    return await engine_query(question=question, k=k, max_sources=max_sources)
+    try:
+        return await engine_query(question=question, k=k, max_sources=max_sources)
+    except Exception as exc:
+        logger.exception("PaperQA query failed")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/upload")
