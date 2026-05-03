@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SH Science Group Literature Database</title>
+    <style>
+        :root {
+            --bg-primary: #0f1923;
+            --bg-secondary: #1a2a3a;
+            --bg-card: #1e3044;
+            --bg-input: #152336;
+            --border: #2a4058;
+            --text-primary: #e8edf2;
+            --text-secondary: #8899aa;
+            --text-muted: #5a6f85;
+            --accent: #4a9eff;
+            --accent-hover: #3a8eef;
+            --accent-glow: rgba(74, 158, 255, 0.15);
+            --success: #2ecc71;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+            --code-bg: #0d1a26;
+            --radius: 8px;
+            --shadow: 0 2px 12px rgba(0,0,0,0.3);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+        /* Header */
+        .header {
+            display: flex; align-items: center; gap: 16px;
+            padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 24px;
+        }
+        .header .logo {
+            width: 42px; height: 42px; border-radius: var(--radius);
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 18px; color: #fff; flex-shrink: 0;
+        }
+        .header h1 { font-size: 22px; font-weight: 600; }
+        .header .subtitle { color: var(--text-secondary); font-size: 13px; }
+        .header .badge {
+            margin-left: auto; padding: 4px 12px; border-radius: 20px;
+            background: var(--accent-glow); color: var(--accent);
+            font-size: 12px; border: 1px solid rgba(74,158,255,0.3);
+        }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border); }
+        .tab-btn {
+            padding: 12px 28px; background: transparent; border: none;
+            color: var(--text-secondary); font-size: 15px; cursor: pointer;
+            border-bottom: 2px solid transparent; transition: all 0.2s;
+            font-weight: 500;
+        }
+        .tab-btn:hover { color: var(--text-primary); background: var(--accent-glow); }
+        .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+        /* Panels */
+        .panel { display: none; padding: 24px 0; }
+        .panel.active { display: block; }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px; margin-bottom: 20px;
+            box-shadow: var(--shadow);
+        }
+        .card-title { font-size: 14px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+
+        /* Inputs */
+        textarea, input[type="text"], input[type="file"]::file-selector-button {
+            font-family: inherit;
+        }
+        .input-group { margin-bottom: 16px; }
+        .input-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+        textarea, input[type="text"] {
+            width: 100%; padding: 12px 16px;
+            background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: var(--radius); color: var(--text-primary);
+            font-size: 14px; transition: border-color 0.2s;
+            outline: none;
+        }
+        textarea:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+        textarea { min-height: 80px; resize: vertical; }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 10px 24px; border: none; border-radius: var(--radius);
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        /* Spinner */
+        .spinner {
+            display: inline-block; width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+            border-radius: 50%; animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Answer area */
+        .answer-box {
+            background: var(--code-bg); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 20px; margin-top: 16px;
+            white-space: pre-wrap; font-size: 14px; line-height: 1.7;
+            display: none; max-height: 600px; overflow-y: auto;
+        }
+        .answer-box .source {
+            margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);
+        }
+        .answer-box .source-item {
+            font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; padding: 8px;
+            background: rgba(255,255,255,0.03); border-radius: 4px;
+        }
+        .answer-box .source-item strong { color: var(--accent); }
+        .answer-box .source-text { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+        .answer-box.show { display: block; }
+
+        .error-msg { color: var(--danger); font-size: 13px; margin-top: 8px; display: none; }
+        .error-msg.show { display: block; }
+
+        /* Upload area */
+        .drop-zone {
+            border: 2px dashed var(--border); border-radius: var(--radius);
+            padding: 40px 20px; text-align: center; cursor: pointer;
+            transition: all 0.2s; background: var(--bg-input); margin-bottom: 16px;
+        }
+        .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: var(--accent-glow); }
+        .drop-zone .icon { font-size: 36px; margin-bottom: 8px; }
+        .drop-zone p { color: var(--text-secondary); font-size: 14px; }
+        .drop-zone .hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+        .file-info { display: none; padding: 12px; background: var(--bg-input); border-radius: var(--radius); margin-bottom: 16px; font-size: 13px; color: var(--text-secondary); }
+        .file-info.show { display: flex; align-items: center; gap: 8px; }
+
+        .upload-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .upload-row .input-group { flex: 1; min-width: 150px; }
+
+        /* Uploads table */
+        .uploads-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .uploads-table th { text-align: left; padding: 10px 12px; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border); }
+        .uploads-table td { padding: 10px 12px; border-bottom: 1px solid rgba(42,64,88,0.5); }
+        .uploads-table tr:hover td { background: var(--accent-glow); }
+        .status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .status-uploaded { background: rgba(46,204,113,0.15); color: var(--success); }
+        .status-processing { background: rgba(243,156,18,0.15); color: var(--warning); }
+
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+        .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+
+        /* Chat-like messages */
+        .chat-area { min-height: 100px; }
+        .chat-message { padding: 16px; border-radius: var(--radius); margin-bottom: 12px; }
+        .chat-message.user { background: var(--accent-glow); border: 1px solid rgba(74,158,255,0.2); }
+        .chat-message.bot { background: var(--code-bg); border: 1px solid var(--border); }
+        .chat-message .label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+        .chat-message .content { font-size: 14px; }
+
+        /* Prompt suggestions */
+        .suggestions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .suggestion { 
+            padding: 6px 14px; border-radius: 20px; background: var(--bg-input); 
+            border: 1px solid var(--border); color: var(--text-secondary); font-size: 12px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .suggestion:hover { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .header h1 { font-size: 18px; }
+            .upload-row { flex-direction: column; }
+            .upload-row .input-group { min-width: 100%; }
+            .tab-btn { padding: 10px 16px; font-size: 13px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">SH</div>
+            <div>
+                <h1>SH Science Group Literature Database</h1>
+                <div class="subtitle">AI-Assisted Literature Review — APS Systematic Review</div>
+            </div>
+            <span class="badge">196 papers indexed</span>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="query">Ask Questions</button>
+            <button class="tab-btn" data-tab="upload">Upload Papers</button>
+        </div>
+
+        <!-- Query Panel -->
+        <div class="panel active" id="panel-query">
+            <div class="card">
+                <div class="card-title">Ask a question about APS</div>
+                <textarea id="query-input" placeholder="e.g. What are the diagnostic criteria for APS?"></textarea>
+                <div class="suggestions">
+                    <span class="suggestion" data-q="What are the diagnostic criteria for APS?">Diagnostic criteria</span>
+                    <span class="suggestion" data-q="What is the first-line anticoagulation for APS with thrombosis?">Anticoagulation therapy</span>
+                    <span class="suggestion" data-q="How does complement activation contribute to pregnancy loss in APS?">Complement & pregnancy</span>
+                    <span class="suggestion" data-q="What is the role of DOACs in APS management?">DOACs in APS</span>
+                </div>
+                <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
+                    <button class="btn btn-primary" id="query-btn">
+                        <span id="query-btn-text">Ask</span>
+                        <span id="query-spinner" class="spinner" style="display:none;"></span>
+                    </button>
+                    <span id="query-status" style="font-size:13px;color:var(--text-muted);"></span>
+                </div>
+                <div class="error-msg" id="query-error"></div>
+            </div>
+
+            <div id="answer-area" class="answer-box"></div>
+        </div>
+
+        <!-- Upload Panel -->
+        <div class="panel" id="panel-upload">
+            <div class="card">
+                <div class="card-title">Upload a paper (PDF)</div>
+                
+                <div class="drop-zone" id="drop-zone">
+                    <div class="icon">📄</div>
+                    <p>Drop PDF here or click to browse</p>
+                    <div class="hint">Only PDF files accepted</div>
+                </div>
+                <input type="file" id="file-input" accept=".pdf,application/pdf" style="display:none;">
+                <div class="file-info" id="file-info">
+                    <span>📎</span>
+                    <span id="file-name"></span>
+                    <span style="color:var(--text-muted);font-size:12px;" id="file-size"></span>
+                </div>
+
+                <div class="upload-row">
+                    <div class="input-group">
+                        <label>PMID</label>
+                        <input type="text" id="pmid-input" placeholder="e.g. 11805148">
+                    </div>
+                    <div class="input-group">
+                        <label>Your name</label>
+                        <input type="text" id="uploader-input" placeholder="e.g. Harry">
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" id="upload-btn" disabled>
+                    <span id="upload-btn-text">Upload</span>
+                    <span id="upload-spinner" class="spinner" style="display:none;"></span>
+                </button>
+                <div class="error-msg" id="upload-error"></div>
+                <div id="upload-success" style="color:var(--success);font-size:13px;margin-top:8px;display:none;"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Recent uploads</div>
+                <div id="uploads-list">
+                    <div class="empty-state">
+                        <div class="icon">📂</div>
+                        <p>No uploads yet</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── Tab switching ──
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+            });
+        });
+
+        // ── Suggestion clicks ──
+        document.querySelectorAll('.suggestion').forEach(s => {
+            s.addEventListener('click', () => {
+                document.getElementById('query-input').value = s.dataset.q;
+                document.getElementById('query-btn').click();
+            });
+        });
+
+        // ── Query ──
+        const queryBtn = document.getElementById('query-btn');
+        const queryInput = document.getElementById('query-input');
+        const querySpinner = document.getElementById('query-spinner');
+        const queryBtnText = document.getElementById('query-btn-text');
+        const queryError = document.getElementById('query-error');
+        const answerArea = document.getElementById('answer-area');
+        const queryStatus = document.getElementById('query-status');
+
+        async function submitQuery() {
+            const question = queryInput.value.trim();
+            if (!question) return;
+            
+            queryBtn.disabled = true;
+            querySpinner.style.display = 'inline-block';
+            queryBtnText.textContent = 'Thinking...';
+            queryError.classList.remove('show');
+            queryStatus.textContent = 'Querying 196 papers...';
+
+            const chatHTML = `<div class="chat-message user"><div class="label">You</div><div class="content">${escapeHtml(question)}</div></div><div class="chat-message bot"><div class="label">APS Review AI</div><div class="content"><span class="spinner"></span> Searching...</div></div>`;
+            answerArea.innerHTML = chatHTML;
+            answerArea.classList.add('show');
+
+            try {
+                const res = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.error || 'Query failed');
+                }
+
+                let html = `<div class="chat-message user"><div class="label">You</div><div class="content">${escapeHtml(question)}</div></div>`;
+                html += `<div class="chat-message bot"><div class="label">APS Review AI</div><div class="content">`;
+                html += formatAnswer(data.answer);
+                if (data.contexts && data.contexts.length > 0) {
+                    html += `<div class="source"><strong>Sources (${data.contexts.length}):</strong>`;
+                    data.contexts.forEach(ctx => {
+                        html += `<div class="source-item">`;
+                        html += `<strong>${escapeHtml(ctx.name)}</strong>`;
+                        if (ctx.citation) html += ` <span style="color:var(--text-muted);font-size:11px;">— ${escapeHtml(ctx.citation)}</span>`;
+                        html += `<div class="source-text">${escapeHtml(ctx.text ? ctx.text.substring(0, 200) : '')}${ctx.text && ctx.text.length > 200 ? '...' : ''}</div>`;
+                        html += `</div>`;
+                    });
+                    html += `</div>`;
+                }
+                html += `</div></div>`;
+                answerArea.innerHTML = html;
+                queryStatus.textContent = 'Done';
+            } catch (err) {
+                answerArea.innerHTML += `<div class="chat-message bot"><div class="label">APS Review AI</div><div class="content" style="color:var(--danger);">Error: ${escapeHtml(err.message)}</div></div>`;
+                queryError.textContent = err.message;
+                queryError.classList.add('show');
+                queryStatus.textContent = 'Error';
+            } finally {
+                queryBtn.disabled = false;
+                querySpinner.style.display = 'none';
+                queryBtnText.textContent = 'Ask';
+            }
+        }
+
+        queryBtn.addEventListener('click', submitQuery);
+        queryInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitQuery();
+            }
+        });
+
+        // ── Upload ──
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const fileSize = document.getElementById('file-size');
+        const pmidInput = document.getElementById('pmid-input');
+        const uploaderInput = document.getElementById('uploader-input');
+        const uploadBtn = document.getElementById('upload-btn');
+        const uploadSpinner = document.getElementById('upload-spinner');
+        const uploadBtnText = document.getElementById('upload-btn-text');
+        const uploadError = document.getElementById('upload-error');
+        const uploadSuccess = document.getElementById('upload-success');
+        let selectedFile = null;
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect();
+            }
+        });
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleFileSelect() {
+            if (fileInput.files.length > 0) {
+                selectedFile = fileInput.files[0];
+                fileName.textContent = selectedFile.name;
+                fileSize.textContent = `(${(selectedFile.size / 1024).toFixed(1)} KB)`;
+                fileInfo.classList.add('show');
+                updateUploadBtn();
+            }
+        }
+
+        function updateUploadBtn() {
+            uploadBtn.disabled = !(selectedFile && pmidInput.value.trim() && uploaderInput.value.trim());
+        }
+        pmidInput.addEventListener('input', updateUploadBtn);
+        uploaderInput.addEventListener('input', updateUploadBtn);
+
+        uploadBtn.addEventListener('click', async () => {
+            if (!selectedFile || !pmidInput.value.trim() || !uploaderInput.value.trim()) return;
+
+            uploadBtn.disabled = true;
+            uploadSpinner.style.display = 'inline-block';
+            uploadBtnText.textContent = 'Uploading...';
+            uploadError.classList.remove('show');
+            uploadSuccess.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('pmid', pmidInput.value.trim());
+            formData.append('uploader_name', uploaderInput.value.trim());
+
+            try {
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Upload failed');
+                uploadSuccess.textContent = '✓ Uploaded successfully!';
+                uploadSuccess.style.display = 'block';
+                selectedFile = null;
+                fileInput.value = '';
+                fileInfo.classList.remove('show');
+                pmidInput.value = '';
+                uploaderInput.value = '';
+                updateUploadBtn();
+                loadUploads();
+            } catch (err) {
+                uploadError.textContent = err.message;
+                uploadError.classList.add('show');
+            } finally {
+                uploadBtn.disabled = false;
+                uploadSpinner.style.display = 'none';
+                uploadBtnText.textContent = 'Upload';
+            }
+        });
+
+        // ── Load uploads list ──
+        async function loadUploads() {
+            try {
+                const res = await fetch('/api/uploads');
+                const data = await res.json();
+                const list = document.getElementById('uploads-list');
+                if (!data.uploads || data.uploads.length === 0) {
+                    list.innerHTML = `<div class="empty-state"><div class="icon">📂</div><p>No uploads yet</p></div>`;
+                    return;
+                }
+                let html = `<table class="uploads-table"><thead><tr><th>File</th><th>PMID</th><th>Uploader</th><th>Date</th><th>Status</th></tr></thead><tbody>`;
+                data.uploads.forEach(u => {
+                    html += `<tr><td>${escapeHtml(u.original_filename || u.filename)}</td><td>${escapeHtml(u.pmid)}</td><td>${escapeHtml(u.uploader_name)}</td><td style="font-size:12px;color:var(--text-muted);">${new Date(u.uploaded_at).toLocaleString()}</td><td><span class="status-badge status-${u.status}">${u.status}</span></td></tr>`;
+                });
+                html += `</tbody></table>`;
+                list.innerHTML = html;
+            } catch (e) {
+                // silently fail
+            }
+        }
+        loadUploads();
+
+        // ── Helpers ──
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function formatAnswer(text) {
+            if (!text) return '';
+            let html = escapeHtml(text);
+            // Make citation references clickable PM IDs
+            html = html.replace(/\(pmid_(\d+)\s*lines\s*[\d\-,\s]+\)/g, '<span style="color:var(--accent);font-weight:500;">($1)</span>');
+            html = html.replace(/References\s*\n\n/g, '<br><br><strong style="color:var(--text-secondary);">References</strong><br>');
+            html = html.replace(/\n/g, '<br>');
+            return html;
+        }
+    </script>
+</body>
+</html>
