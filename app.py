@@ -204,9 +204,32 @@ def init_engine_background() -> None:
         _engine_error = "DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured"
         logger.error(_engine_error)
         return
-    _engine_ready = True
-    _engine_error = None
-    logger.info("PaperQA engine ready (lazy load on first query)")
+
+    import threading
+
+    def _load(k):
+        import asyncio
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            from paperqa_engine import init_engine_sync, check_health
+
+            docs = init_engine_sync(api_key=k, corpus_dir=CORPUS_DIR)
+            # init_engine_sync sets module-level _docs, but only in this thread's view.
+            # We need to ensure the main process sees it too.
+            _engine_ready = True
+            _engine_error = None
+            logger.info("PaperQA engine initialized: %s docs", len(docs.docs))
+        except Exception as exc:
+            _engine_error = str(exc)
+            logger.exception("PaperQA init failed")
+        finally:
+            new_loop.close()
+
+    t = threading.Thread(target=_load, args=(api_key,), daemon=True)
+    t.start()
+    # Don't wait - the health endpoint will see _engine_ready=True once loading finishes
+    logger.info("PaperQA background loading started")
 
 
 @app.on_event("startup")
@@ -276,9 +299,9 @@ async def api_health():
     texts_count = 0
     if _engine_ready:
         try:
-            from paperqa_engine import check_health
+            from paperqa_engine import check_health as engine_health
 
-            health = await check_health()
+            health = await engine_health()
             docs_count = health["docs_count"]
             texts_count = health["texts_count"]
         except Exception as exc:
@@ -295,6 +318,7 @@ async def api_health():
         },
         "engine": {
             "ready": _engine_ready,
+            "loading": _engine_ready and docs_count == 0,
             "error": _engine_error,
             "docs_count": docs_count,
             "texts_count": texts_count,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PaperQA integration — loads docs lazily on first query."""
+"""PaperQA integration for the literature database."""
 
 from __future__ import annotations
 
@@ -51,12 +51,37 @@ async def _load_all(api_key: str, corpus_dir: Path) -> Any:
             try:
                 await docs.aadd(str(path), docname=path.stem)
             except Exception as exc:
-                logger.warning("PaperQA: skip %s — %s", path.name, exc)
+                logger.warning("PaperQA: skip %s - %s", path.name, exc)
         loaded = min(i + 10, len(md_files))
         logger.info("PaperQA: loaded %s/%s (%s docs)", loaded, len(md_files), len(docs.docs))
 
     logger.info("PaperQA ready: %s docs, %s chunks", len(docs.docs), len(docs.texts))
     return docs
+
+
+def init_engine_sync(api_key: str | None = None, corpus_dir: str | Path | None = None) -> Any:
+    """Synchronous wrapper to load all docs."""
+    import asyncio
+    global _docs, _docs_loaded
+
+    if _docs_loaded:
+        return _docs
+
+    target = Path(corpus_dir or DEFAULT_CORPUS_DIR).resolve()
+    api_key = api_key or get_api_key()
+
+    async def _run():
+        docs = await _load_all(api_key, target)
+        return docs
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        _docs = loop.run_until_complete(_run())
+        _docs_loaded = True
+        return _docs
+    finally:
+        loop.close()
 
 
 async def query(question: str, k: int = 10, max_sources: int = 5) -> dict[str, Any]:
@@ -77,7 +102,7 @@ async def query(question: str, k: int = 10, max_sources: int = 5) -> dict[str, A
     for context in result.contexts:
         text_obj = context.text
         source_name = getattr(text_obj, "name", "")
-        pmid_match = re.search(r"pmid[_:\\s-]*(\\d+)", source_name or "", re.IGNORECASE)
+        pmid_match = re.search(r"pmid[:_\s-]*(\d+)", source_name or "", re.IGNORECASE)
         pmid = pmid_match.group(1) if pmid_match else ""
         contexts.append(
             {
@@ -97,5 +122,5 @@ async def query(question: str, k: int = 10, max_sources: int = 5) -> dict[str, A
 
 async def check_health() -> dict[str, Any]:
     if _docs and _docs_loaded:
-        return {"ready": True, "docs_count": len(_docs.docs), "texts_count": len(_docs.texts)}
-    return {"ready": True, "docs_count": 0, "texts_count": 0}
+        return {"ready": True, "docs_count": len(_docs.docs), "texts_count": len(_docs.texts), "corpus_dir": str(DEFAULT_CORPUS_DIR)}
+    return {"ready": True, "docs_count": 0, "texts_count": 0, "corpus_dir": str(DEFAULT_CORPUS_DIR)}

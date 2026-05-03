@@ -329,14 +329,17 @@ async function loadHealth() {
     try {
         const health = await fetchJson("/api/health");
         const ready = Boolean(health.engine && health.engine.ready);
+        const loading = Boolean(health.engine && health.engine.loading);
         const error = health.engine && health.engine.error;
         const dot = els.statusStrip.querySelector(".status-dot");
-        dot.className = `status-dot ${ready ? "status-ready" : error ? "status-error" : "status-waiting"}`;
-        els.engineStatus.textContent = ready
-            ? `${t("paperQAReady")} · ${health.engine.docs_count} docs`
-            : error
-              ? `${t("paperQAUnavailable")} · ${formatError(error)}`
-              : t("paperQANotReady");
+        dot.className = `status-dot ${loading ? "status-waiting" : ready ? "status-ready" : error ? "status-error" : "status-waiting"}`;
+        els.engineStatus.textContent = loading
+            ? `${t("paperQANotReady")} · ${formatError(error || "")}`
+            : ready
+              ? `${t("paperQAReady")} · ${health.engine.docs_count} docs`
+              : error
+                ? `${t("paperQAUnavailable")} · ${formatError(error)}`
+                : t("paperQANotReady");
         els.metricPapers.textContent = health.corpus ? health.corpus.papers_count : "--";
         renderPrioritySummary(health.corpus ? health.corpus.priority_counts : {});
     } catch (error) {
