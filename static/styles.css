@@ -514,6 +514,25 @@ h2 {
     width: 100%;
     min-width: 780px;
     border-collapse: collapse;
+    table-layout: auto;
+}
+
+.paper-table th:first-child,
+.paper-table td:first-child {
+    width: 60%;
+}
+
+.paper-table th:nth-child(2),
+.paper-table td:nth-child(2) {
+    width: 12%;
+    min-width: 100px;
+    white-space: nowrap;
+}
+
+.paper-table th:nth-child(3),
+.paper-table td:nth-child(3) {
+    width: 28%;
+    min-width: 140px;
 }
 
 .paper-table th,
@@ -562,11 +581,12 @@ h2 {
 }
 
 .priority.high {
-    color: var(--danger);
+    color: var(--warning);
+    font-weight: 500;
 }
 
 .priority.medium {
-    color: var(--warning);
+    color: var(--text-soft);
 }
 
 .priority.low {
@@ -705,27 +725,112 @@ h2 {
     padding: 20px;
 }
 
+.upload-group {
+    margin-bottom: 20px;
+}
+
+.upload-group-pmid {
+    margin: 0 0 8px;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 14px;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .upload-item {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
-    padding: 12px 0;
+    padding: 10px 0;
     border-bottom: 1px solid var(--border);
+    align-items: center;
 }
 
 .upload-item:last-child {
     border-bottom: 0;
 }
 
+.upload-info {
+    min-width: 0;
+}
+
 .upload-name {
     margin: 0;
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .upload-meta {
     margin: 3px 0 0;
     color: var(--text-muted);
     font-size: 13px;
+}
+
+.upload-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: #fbfaf7;
+    color: var(--text-muted);
+}
+
+.status-pill.status-indexed {
+    background: rgba(22, 132, 91, 0.1);
+    color: var(--success);
+    border-color: rgba(22, 132, 91, 0.3);
+}
+
+.status-pill.status-uploaded {
+    background: rgba(155, 101, 0, 0.08);
+    color: var(--warning);
+    border-color: rgba(155, 101, 0, 0.22);
+}
+
+.icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.icon-button:hover {
+    background: #f6f4ef;
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+.delete-btn:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: rgba(180, 35, 24, 0.06);
+}
+
+.status-toggle:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+    background: rgba(37, 99, 235, 0.06);
 }
 
 .error-text {

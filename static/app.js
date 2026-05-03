@@ -503,15 +503,66 @@ async function loadUploads() {
             els.uploadsList.innerHTML = `<p class="empty-note">${escapeHtml(t("noUploads"))}</p>`;
             return;
         }
-        els.uploadsList.innerHTML = uploads.map((upload) => `
-            <div class="upload-item">
-                <div>
-                    <p class="upload-name">${escapeHtml(upload.original_filename || upload.filename)}</p>
-                    <p class="upload-meta">PMID ${escapeHtml(upload.pmid)} · ${escapeHtml(upload.uploader_name)} · ${formatDate(upload.uploaded_at)}</p>
-                </div>
-                <span class="pill">${escapeHtml(upload.status || "uploaded")}</span>
+
+        // Group by PMID
+        const groups = {};
+        for (const upload of uploads) {
+            const key = upload.pmid || "unknown";
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(upload);
+        }
+
+        els.uploadsList.innerHTML = Object.entries(groups).map(([pmid, items]) => `
+            <div class="upload-group">
+                <p class="upload-group-pmid">PMID ${escapeHtml(pmid)}</p>
+                ${items.map((upload) => `
+                    <div class="upload-item">
+                        <div class="upload-info">
+                            <p class="upload-name">${escapeHtml(upload.original_filename || upload.filename)}</p>
+                            <p class="upload-meta">${escapeHtml(upload.uploader_name)} · ${formatDate(upload.uploaded_at)} · ${formatSize(upload.file_size)}</p>
+                        </div>
+                        <div class="upload-actions">
+                            <span class="status-pill status-${escapeHtml(String(upload.status || "uploaded").toLowerCase().replace(/\s+/g, "-"))}">${escapeHtml(upload.status || "uploaded")}</span>
+                            <button class="icon-button status-toggle" data-id="${escapeHtml(String(upload.id))}" data-status="${escapeHtml(String(upload.status || "uploaded"))}" title="Toggle status">↻</button>
+                            <button class="icon-button delete-btn" data-id="${escapeHtml(String(upload.id))}" title="Delete">×</button>
+                        </div>
+                    </div>
+                `).join("")}
             </div>
         `).join("");
+
+        // Bind delete buttons
+        document.querySelectorAll(".delete-btn").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+                const id = Number(btn.dataset.id);
+                if (!confirm(`Delete upload #${id}?`)) return;
+                try {
+                    await fetchJson(`/api/uploads/${id}`, { method: "DELETE" });
+                    loadUploads();
+                } catch (err) {
+                    alert("Delete failed: " + err.message);
+                }
+            });
+        });
+
+        // Bind status toggle
+        document.querySelectorAll(".status-toggle").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+                const id = Number(btn.dataset.id);
+                const statusMap = { uploaded: "indexed", indexed: "uploaded" };
+                const newStatus = statusMap[btn.dataset.status] || "uploaded";
+                try {
+                    await fetchJson(`/api/uploads/${id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: newStatus }),
+                    });
+                    loadUploads();
+                } catch (err) {
+                    alert("Update failed: " + err.message);
+                }
+            });
+        });
     } catch (error) {
         els.uploadsList.innerHTML = `<p class="error-text">${escapeHtml(error.message)}</p>`;
     }
@@ -553,6 +604,13 @@ function formatDate(value) {
     if (!value) return t("unknownDate");
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatSize(bytes) {
+    if (!bytes) return "";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
 function localizePriority(value) {

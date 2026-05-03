@@ -405,6 +405,53 @@ async def api_uploads():
     return {"uploads": metadata}
 
 
+@app.delete("/api/uploads/{upload_id}")
+async def api_delete_upload(upload_id: int):
+    metadata = load_uploads_metadata()
+    target = None
+    for item in metadata:
+        if int(item.get("id", 0)) == upload_id:
+            target = item
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    metadata = [item for item in metadata if int(item.get("id", 0)) != upload_id]
+    save_uploads_metadata(metadata)
+
+    pdf_path = UPLOAD_DIR / target.get("filename", "")
+    if pdf_path.exists():
+        pdf_path.unlink()
+
+    logger.info("Deleted upload %s (PMID %s)", upload_id, target.get("pmid"))
+    return {"message": "Upload deleted"}
+
+
+@app.patch("/api/uploads/{upload_id}")
+async def api_update_upload(upload_id: int, request: Request):
+    metadata = load_uploads_metadata()
+    target = None
+    for item in metadata:
+        if int(item.get("id", 0)) == upload_id:
+            target = item
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    for key in ("status",):
+        if key in body:
+            target[key] = str(body[key])
+
+    save_uploads_metadata(metadata)
+    logger.info("Updated upload %s: %s", upload_id, {k: body[k] for k in body if k in ("status",)})
+    return {"message": "Upload updated", "entry": target}
+
+
 def count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in rows:
