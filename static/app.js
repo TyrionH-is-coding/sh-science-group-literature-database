@@ -71,6 +71,7 @@ const i18n = {
         openOriginal: "Open original",
         noUploads: "No uploaded PDFs yet.",
         uploadMissing: "Select a PDF and PMID.",
+        uploadNeedLogin: "Log in before uploading.",
         uploadingPdf: "Uploading PDF...",
         uploadSaved: "Upload saved.",
         unknownJournal: "Unknown journal",
@@ -143,6 +144,7 @@ const i18n = {
         openOriginal: "打开原文",
         noUploads: "暂无上传 PDF。",
         uploadMissing: "请选择 PDF 并填写 PMID。",
+        uploadNeedLogin: "请先登录后再上传。",
         uploadingPdf: "正在上传 PDF...",
         uploadSaved: "上传已保存。",
         unknownJournal: "未知期刊",
@@ -285,9 +287,17 @@ function bindTabs() {
 }
 
 function bindFilters() {
+    let searchTimeout;
     [els.searchInput, els.priorityFilter, els.moduleFilter].forEach((input) => {
-        input.addEventListener("input", applyFilters);
-        input.addEventListener("change", applyFilters);
+        const eventType = input === els.searchInput ? "input" : "change";
+        input.addEventListener(eventType, () => {
+            if (input === els.searchInput) {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(applyFilters, 300);
+            } else {
+                applyFilters();
+            }
+        });
     });
 }
 
@@ -462,6 +472,10 @@ async function uploadPdf() {
     const uploaderName = state.userName.trim();
     if (!file || !pmid) {
         setUploadMessage(t("uploadMissing"), true);
+        return;
+    }
+    if (!uploaderName) {
+        setUploadMessage(t("uploadNeedLogin"), true);
         return;
     }
 
