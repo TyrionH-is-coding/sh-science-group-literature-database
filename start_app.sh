@@ -1,21 +1,17 @@
 #!/bin/bash
-# Start APS Review Web App
-# Port 8081 — does not conflict with ASReview (port 80)
+set -euo pipefail
 
-cd /root/APS_Review
+cd "$(dirname "$0")"
 
-# Get API key from .bashrc (needs interactive mode)
-export DEEPSEEK_API_KEY=$(bash -l -i -c 'echo $DEEPSEEK_API_KEY' 2>/dev/null)
+export HOST="${HOST:-0.0.0.0}"
+export PORT="${PORT:-8081}"
+export PAPERQA_CORPUS_DIR="${PAPERQA_CORPUS_DIR:-paperqa_import/high_medium_ready}"
+export PAPER_UPLOAD_DIR="${PAPER_UPLOAD_DIR:-uploads}"
+export MAX_UPLOAD_MB="${MAX_UPLOAD_MB:-50}"
 
-# System python3 has all deps (fastapi, uvicorn, paper-qa, langchain-deepseek)
-# No need for a special venv
-
-if [ -z "$DEEPSEEK_API_KEY" ]; then
-    echo "WARNING: DEEPSEEK_API_KEY is not set!"
-    echo "Upload will work but queries will fail."
-else
-    echo "DeepSeek API key: ${DEEPSEEK_API_KEY:0:8}... (len=${#DEEPSEEK_API_KEY})"
+if [ -z "${DEEPSEEK_API_KEY:-${PAPERQA_API_KEY:-}}" ]; then
+    echo "WARNING: DEEPSEEK_API_KEY or PAPERQA_API_KEY is not set. PaperQA queries will be unavailable."
 fi
 
-echo "Starting APS Review Web App on port 8081..."
-exec python3 -m uvicorn app:app --host 0.0.0.0 --port 8081 --log-level info
+echo "Starting SH Science Group Literature Database on ${HOST}:${PORT}"
+exec python3 -m uvicorn app:app --host "${HOST}" --port "${PORT}" --log-level "${LOG_LEVEL:-info}"

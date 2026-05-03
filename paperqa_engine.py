@@ -1,180 +1,132 @@
 #!/usr/bin/env python3
-"""
-PaperQA Engine — APS Review Web App
-=====================================
-Loads all 196 APS markdown files into a PaperQA Docs object on startup,
-and provides an async query() function for the web app.
+"""PaperQA integration for the literature database."""
 
-Uses DeepSeek via LangChain bridge with sparse embedding.
-"""
+from __future__ import annotations
 
-import os
-import sys
-import glob
 import logging
+import os
 from pathlib import Path
+from typing import Any
+import re
 
 logger = logging.getLogger("paperqa_engine")
 
-# ── Configuration ──
-MD_DIR = "/root/APS_Review/paperqa_import/high_medium_ready"
+ROOT = Path(__file__).resolve().parent
+DEFAULT_CORPUS_DIR = ROOT / "paperqa_import" / "high_medium_ready"
 
-# Global Docs instance (lazy-loaded)
-_docs = None
+_docs: Any | None = None
 _docs_loaded = False
-_init_task = None  # Background init task
+_loaded_corpus_dir: Path | None = None
 
 
-def get_api_key():
-    """Get DeepSeek API key from environment."""
-    key = os.environ.get("DEEPSEEK_API_KEY")
-    if key:
-        return key
-    return None
+def get_api_key() -> str | None:
+    return os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("PAPERQA_API_KEY")
 
 
-async def init_engine(api_key: str | None = None):
-    """Initialize the PaperQA Docs engine by loading all markdown files."""
-    global _docs, _docs_loaded
+async def init_engine(
+    api_key: str | None = None,
+    corpus_dir: str | Path | None = None,
+):
+    """Load the Markdown corpus into a PaperQA Docs object."""
+    global _docs, _docs_loaded, _loaded_corpus_dir
 
-    if _docs_loaded:
-        logger.info("Engine already initialized, returning existing instance")
+    target_dir = Path(
+        corpus_dir
+        or os.environ.get("PAPERQA_CORPUS_DIR")
+        or DEFAULT_CORPUS_DIR
+    ).resolve()
+
+    if _docs_loaded and _loaded_corpus_dir == target_dir:
         return _docs
 
-    if api_key is None:
-        api_key = get_api_key()
-
+    api_key = api_key or get_api_key()
     if not api_key:
-        raise RuntimeError(
-            "DEEPSEEK_API_KEY not found. Set it in environment or ~/.bashrc"
-        )
+        raise RuntimeError("DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured")
+    if not target_dir.exists():
+        raise RuntimeError(f"Corpus directory does not exist: {target_dir}")
 
-    logger.info("Initializing PaperQA engine...")
+    logger.info("Initializing PaperQA engine from %s", target_dir)
 
-    # Configure DeepSeek via LangChain
     from langchain_deepseek import ChatDeepSeek
-
-    llm = ChatDeepSeek(
-        model="deepseek-chat",
-        api_key=api_key,
-        temperature=0.1,
-    )
-
-    # Create PaperQA Docs
     from paperqa import Docs
 
-    _docs = Docs(llm="langchain", embedding="sparse", client=llm)
-    logger.info(f"LLM: {_docs.llm_model.name} | Embedding: sparse")
-
-    # Load markdown files — run in a thread pool to avoid ASGI event loop blocking
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-
-    md_files = sorted(glob.glob(os.path.join(MD_DIR, "*.md")))
-    logger.info(f"Found {len(md_files)} markdown files in {MD_DIR}")
-
-    def run_aadd_in_loop(docs, fpath, name):
-        """Run aadd in its own event loop (to avoid nesting in the ASGI loop)."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(docs.aadd(fpath, docname=name))
-        finally:
-            loop.close()
-
-    batch_size = 20
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = []
-        for fpath in md_files:
-            name = Path(fpath).stem
-            futures.append(
-                executor.submit(run_aadd_in_loop, _docs, fpath, name)
-            )
-            # Log batch progress
-            completed = sum(1 for f in futures if f.done())
-            if completed % batch_size == 0 and completed > 0:
-                logger.info(
-                    f"Loaded {completed}/{len(md_files)} files"
-                )
-        # Wait for all
-        for f in futures:
-            try:
-                f.result(timeout=120)
-            except Exception as e:
-                logger.warning(f"File load error: {e}")
-
-    logger.info(
-        f"Engine ready: {len(_docs.docs)} docs, {len(_docs.texts)} text chunks"
+    llm = ChatDeepSeek(
+        model=os.environ.get("PAPERQA_LLM_MODEL", "deepseek-chat"),
+        api_key=api_key,
+        temperature=float(os.environ.get("PAPERQA_TEMPERATURE", "0.1")),
     )
+    docs = Docs(llm="langchain", embedding="sparse", client=llm)
+
+    md_files = sorted(target_dir.glob("*.md"))
+    if not md_files:
+        raise RuntimeError(f"No Markdown files found in {target_dir}")
+
+    for index, path in enumerate(md_files, start=1):
+        try:
+            await docs.aadd(str(path), docname=path.stem)
+        except Exception as exc:
+            logger.warning("Could not add %s: %s", path.name, exc)
+        if index % 25 == 0 or index == len(md_files):
+            logger.info("Loaded %s/%s Markdown files", index, len(md_files))
+
+    _docs = docs
     _docs_loaded = True
+    _loaded_corpus_dir = target_dir
+    logger.info("PaperQA ready: %s docs, %s text chunks", len(docs.docs), len(docs.texts))
     return _docs
 
 
-def init_engine_sync(api_key: str | None = None):
-    """Synchronous wrapper — runs init_engine in its own event loop.
-    Used for background startup in the web app."""
+def init_engine_sync(
+    api_key: str | None = None,
+    corpus_dir: str | Path | None = None,
+):
     import asyncio
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        return loop.run_until_complete(init_engine(api_key))
+        return loop.run_until_complete(init_engine(api_key=api_key, corpus_dir=corpus_dir))
     finally:
         loop.close()
 
 
-async def query(question: str, k: int = 10, max_sources: int = 5) -> dict:
-    """
-    Run a PaperQA query against the loaded documents.
-
-    Returns a dict with:
-        - question: the original question
-        - answer: formatted answer text
-        - contexts: list of source contexts with text and doc name
-    """
-    global _docs
-
+async def query(question: str, k: int = 10, max_sources: int = 5) -> dict[str, Any]:
     if _docs is None or not _docs_loaded:
-        raise RuntimeError("Engine not initialized. Call init_engine() first.")
+        raise RuntimeError("PaperQA engine is not initialized")
 
-    logger.info(f"Querying: {question[:100]}...")
-    try:
-        result = await _docs.aquery(
-            query=question, k=k, max_sources=max_sources
+    result = await _docs.aquery(query=question, k=k, max_sources=max_sources)
+    contexts = []
+    for context in result.contexts:
+        text_obj = context.text
+        source_name = getattr(text_obj, "name", "")
+        pmid_match = re.search(r"pmid[_:\s-]*(\d+)", source_name or "", re.IGNORECASE)
+        pmid = pmid_match.group(1) if pmid_match else ""
+        contexts.append(
+            {
+                "name": source_name,
+                "pmid": pmid,
+                "url": f"/papers/{pmid}" if pmid else "",
+                "text": getattr(text_obj, "text", "")[:900],
+                "citation": getattr(getattr(text_obj, "doc", None), "citation", "")
+                or source_name,
+            }
         )
-        return {
-            "question": question,
-            "answer": result.formatted_answer,
-            "contexts": [
-                {
-                    "text": c.text.text[:500],
-                    "name": c.text.name,
-                    "citation": c.text.doc.citation
-                    if hasattr(c.text, "doc") and hasattr(c.text.doc, "citation")
-                    else c.text.name,
-                }
-                for c in result.contexts
-            ],
-        }
-    except Exception as e:
-        logger.error(f"Query failed: {e}")
-        return {
-            "question": question,
-            "answer": f"[ERROR] {str(e)}",
-            "contexts": [],
-        }
+
+    return {
+        "question": question,
+        "answer": result.formatted_answer,
+        "contexts": contexts,
+    }
 
 
-async def check_health() -> dict:
-    """Return engine health status."""
-    global _docs, _docs_loaded
+async def check_health() -> dict[str, Any]:
     return {
         "ready": _docs_loaded,
         "docs_count": len(_docs.docs) if _docs and _docs_loaded else 0,
         "texts_count": len(_docs.texts) if _docs and _docs_loaded else 0,
+        "corpus_dir": str(_loaded_corpus_dir) if _loaded_corpus_dir else None,
     }
 
 
-def get_docs() -> object:
-    """Return the global Docs instance (for direct access if needed)."""
-    global _docs
+def get_docs() -> Any:
     return _docs
