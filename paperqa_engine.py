@@ -18,6 +18,14 @@ _docs: Any = None
 _docs_loaded = False
 
 
+def get_llm_config() -> dict[str, Any]:
+    return {
+        "provider": os.environ.get("PAPERQA_LLM_PROVIDER", "DeepSeek"),
+        "model": os.environ.get("PAPERQA_LLM_MODEL", "deepseek-chat"),
+        "temperature": float(os.environ.get("PAPERQA_TEMPERATURE", "0.1")),
+    }
+
+
 def get_api_key() -> str | None:
     key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("PAPERQA_API_KEY")
     if key:
@@ -35,10 +43,11 @@ async def _load_all(api_key: str, corpus_dir: Path) -> Any:
     from langchain_deepseek import ChatDeepSeek
     from paperqa import Docs
 
+    config = get_llm_config()
     llm = ChatDeepSeek(
-        model=os.environ.get("PAPERQA_LLM_MODEL", "deepseek-chat"),
+        model=config["model"],
         api_key=api_key,
-        temperature=float(os.environ.get("PAPERQA_TEMPERATURE", "0.1")),
+        temperature=config["temperature"],
     )
     docs = Docs(llm="langchain", embedding="sparse", client=llm)
 
@@ -117,6 +126,7 @@ async def query(question: str, k: int = 10, max_sources: int = 5) -> dict[str, A
         "question": question,
         "answer": result.formatted_answer,
         "contexts": contexts,
+        "llm": get_llm_config(),
     }
 
 

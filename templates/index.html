@@ -51,7 +51,7 @@
         <header class="topbar">
             <div>
                 <p class="eyebrow" data-i18n="appEyebrow">APS Review Workspace</p>
-                <h1 data-i18n="appTitle">SH Science Group Literature Database</h1>
+                <h1 data-i18n="appTitle">Literature Library</h1>
             </div>
             <div class="top-actions">
                 <div class="language-toggle" role="group" aria-label="Language">
@@ -62,6 +62,10 @@
                 <div class="status-strip" id="status-strip">
                     <span class="status-dot status-waiting"></span>
                     <span id="engine-status" data-i18n="checkingPaperQA">Checking PaperQA</span>
+                </div>
+                <div class="llm-strip" id="llm-strip">
+                    <span id="paperqa-llm">PaperQA LLM: --</span>
+                    <span id="draft-llm">Draft LLM: --</span>
                 </div>
             </div>
         </header>
@@ -81,9 +85,6 @@
 
                 <section class="panel">
                     <p class="panel-label" data-i18n="filters">Filters</p>
-                    <label class="field-label" for="search-input" data-i18n="search">Search</label>
-                    <input id="search-input" class="text-input" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="PMID, title, journal, module">
-
                     <label class="field-label" for="priority-filter" data-i18n="priority">Priority</label>
                     <select id="priority-filter" class="text-input">
                         <option value="" data-i18n="allPriorities">All priorities</option>
@@ -120,8 +121,10 @@
                 <section id="view-papers" class="view active">
                     <div class="section-header">
                         <div>
-                            <p class="panel-label" data-i18n="literatureTable">Literature Table</p>
-                            <h2 data-i18n="reviewReadyPapers">Review-ready papers</h2>
+                            <h2 data-i18n="reviewReadyPapers">Literature Library</h2>
+                        </div>
+                        <div class="header-search">
+                            <input id="search-input" class="text-input" type="search" aria-label="Search literature" data-i18n-placeholder="searchPlaceholder" placeholder="Search PMID, title, journal, module">
                         </div>
                         <span class="result-count" id="paper-count" data-i18n="loading">Loading</span>
                     </div>

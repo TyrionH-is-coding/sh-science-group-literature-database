@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import html
+from functools import lru_cache
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,9 @@ app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
 _engine_ready = False
 _engine_error: str | None = None
+
+SENTENCE_RE = re.compile(r"[^.!?。！？;；]+(?:[.!?。！？;；]+|$)", re.MULTILINE)
+SOURCE_LINE_RE = re.compile(r"(?:line|lines)\s+(\d+)(?:\s*[-–]\s*(\d+))?", re.IGNORECASE)
 
 
 def get_api_key() -> str | None:
@@ -148,6 +152,260 @@ def extract_section(body: str, heading: str, max_chars: int = 2000) -> str:
     return re.sub(r"\s+", " ", section).strip()[:max_chars]
 
 
+def llm_runtime_config() -> dict[str, Any]:
+    paperqa_model = os.environ.get("PAPERQA_LLM_MODEL", "deepseek-chat")
+    draft_model = os.environ.get("PAPERQA_DRAFT_MODEL", paperqa_model)
+    return {
+        "paperqa": {
+            "provider": os.environ.get("PAPERQA_LLM_PROVIDER", "DeepSeek"),
+            "model": paperqa_model,
+            "temperature": float(os.environ.get("PAPERQA_TEMPERATURE", "0.1")),
+        },
+        "draft": {
+            "provider": os.environ.get("DRAFT_LLM_PROVIDER", "DeepSeek"),
+            "model": draft_model,
+            "temperature": float(os.environ.get("DRAFT_TEMPERATURE", "0.2")),
+        },
+    }
+
+
+def normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value or "").strip().lower()
+
+
+def strip_markdown_inline(value: str) -> str:
+    cleaned = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", value)
+    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"[*_`]+", "", cleaned)
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    return cleaned.strip()
+
+
+def display_module_label(value: str) -> str:
+    clean = (value or "").strip()
+    if not clean:
+        return ""
+    return re.sub(r"^module[_-]?\d+[_-]?", "", clean, flags=re.IGNORECASE).replace("_", " ").title()
+
+
+def split_sentences(text: str) -> list[str]:
+    cleaned = strip_markdown_inline(text)
+    sentences = [match.group(0).strip() for match in SENTENCE_RE.finditer(cleaned)]
+    return [sentence for sentence in sentences if sentence]
+
+
+def iter_text_blocks(body: str) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    paragraph_lines: list[str] = []
+    paragraph_start = 1
+    section = "Document"
+
+    def flush_paragraph(end_line: int) -> None:
+        nonlocal paragraph_lines
+        if not paragraph_lines:
+            return
+        text = " ".join(line.strip() for line in paragraph_lines).strip()
+        if text:
+            blocks.append(
+                {
+                    "type": "paragraph",
+                    "text": text,
+                    "section": section,
+                    "line_start": paragraph_start,
+                    "line_end": end_line,
+                }
+            )
+        paragraph_lines = []
+
+    for line_no, line in enumerate(body.splitlines(), start=1):
+        stripped = line.strip()
+        heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading:
+            flush_paragraph(line_no - 1)
+            section = strip_markdown_inline(heading.group(2))
+            blocks.append(
+                {
+                    "type": "heading",
+                    "level": len(heading.group(1)),
+                    "text": section,
+                    "section": section,
+                    "line_start": line_no,
+                    "line_end": line_no,
+                }
+            )
+            continue
+        if not stripped:
+            flush_paragraph(line_no - 1)
+            continue
+        if stripped.startswith(("---", "```")):
+            flush_paragraph(line_no - 1)
+            continue
+        if not paragraph_lines:
+            paragraph_start = line_no
+        paragraph_lines.append(stripped)
+
+    flush_paragraph(len(body.splitlines()))
+    return blocks
+
+
+@lru_cache(maxsize=512)
+def evidence_index_for_pmid(pmid: str) -> tuple[dict[str, Any], ...]:
+    detail = get_paper_by_pmid(pmid)
+    sentences: list[dict[str, Any]] = []
+    for block in iter_text_blocks(detail["body"]):
+        if block["type"] != "paragraph":
+            continue
+        if normalize_text(block["section"]) == "metadata":
+            continue
+        for index, sentence in enumerate(split_sentences(block["text"]), start=1):
+            if len(sentence) < 24:
+                continue
+            sentence_id = f"s{block['line_start']}-{index}"
+            sentences.append(
+                {
+                    "id": sentence_id,
+                    "text": sentence,
+                    "section": block["section"],
+                    "line_start": block["line_start"],
+                    "line_end": block["line_end"],
+                    "pmid": re.sub(r"\D", "", pmid),
+                }
+            )
+    return tuple(sentences)
+
+
+def line_range_from_context(source: dict[str, Any]) -> tuple[int | None, int | None]:
+    haystack = " ".join(str(source.get(key, "")) for key in ("name", "citation", "text"))
+    match = SOURCE_LINE_RE.search(haystack)
+    if not match:
+        return None, None
+    start = int(match.group(1))
+    end = int(match.group(2) or start)
+    return start, end
+
+
+def sentence_overlap_score(sentence: str, context_text: str) -> float:
+    sentence_words = set(re.findall(r"[a-zA-Z0-9βακ]+", normalize_text(sentence)))
+    context_words = set(re.findall(r"[a-zA-Z0-9βακ]+", normalize_text(context_text)))
+    if not sentence_words or not context_words:
+        return 0.0
+    return len(sentence_words & context_words) / max(len(sentence_words), 1)
+
+
+def resolve_context_to_evidence(source: dict[str, Any], limit: int = 4) -> list[dict[str, Any]]:
+    pmid = str(source.get("pmid") or "")
+    if not pmid:
+        match = re.search(r"pmid[:_\s-]*(\d+)", str(source.get("name", "")), re.IGNORECASE)
+        pmid = match.group(1) if match else ""
+    if not pmid:
+        return []
+
+    context_text = str(source.get("text") or "")
+    normalized_context = normalize_text(context_text)
+    line_start, line_end = line_range_from_context(source)
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for sentence in evidence_index_for_pmid(pmid):
+        score = 0.0
+        normalized_sentence = normalize_text(sentence["text"])
+        if normalized_sentence and normalized_sentence in normalized_context:
+            score = 1.0
+        elif normalized_context and normalized_context in normalized_sentence:
+            score = 0.95
+        elif line_start and line_end and sentence["line_start"] <= line_end and sentence["line_end"] >= line_start:
+            score = 0.8
+        else:
+            score = sentence_overlap_score(sentence["text"], context_text)
+        if score >= 0.28:
+            candidates.append((score, dict(sentence)))
+
+    candidates.sort(key=lambda item: (-item[0], item[1]["line_start"]))
+    evidences = []
+    seen = set()
+    for score, sentence in candidates:
+        if sentence["id"] in seen:
+            continue
+        seen.add(sentence["id"])
+        sentence["score"] = round(score, 3)
+        sentence["url"] = f"/papers/{pmid}?highlight={sentence['id']}#{sentence['id']}"
+        evidences.append(sentence)
+        if len(evidences) >= limit:
+            break
+    return evidences
+
+
+def enrich_contexts_with_evidence(contexts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched = []
+    for source in contexts:
+        item = dict(source)
+        evidences = resolve_context_to_evidence(item)
+        item["evidence"] = evidences
+        if evidences:
+            ids = ",".join(evidence["id"] for evidence in evidences)
+            item["url"] = f"/papers/{item.get('pmid')}?highlight={ids}#{evidences[0]['id']}"
+        enriched.append(item)
+    return enriched
+
+
+def markdown_inline_html(text: str, highlight_ids: set[str], sentence_lookup: dict[str, str]) -> str:
+    parts = []
+    remaining = text
+    for sentence in split_sentences(text):
+        idx = normalize_text(remaining).find(normalize_text(sentence))
+        sentence_id = sentence_lookup.get(normalize_text(sentence))
+        classes = "article-sentence"
+        if sentence_id in highlight_ids:
+            classes += " cited-sentence"
+        safe = html.escape(sentence)
+        if sentence_id:
+            parts.append(f'<span class="{classes}" id="{html.escape(sentence_id)}">{safe}</span>')
+        else:
+            parts.append(safe)
+        if idx >= 0:
+            remaining = remaining[idx + len(sentence) :]
+    if not parts:
+        return html.escape(strip_markdown_inline(text))
+    return " ".join(parts)
+
+
+def render_markdown_article(body: str, highlight_ids: set[str]) -> str:
+    index = evidence_index_for_pmid_from_body(body)
+    sentence_lookup = {normalize_text(item["text"]): item["id"] for item in index}
+    html_parts: list[str] = []
+    for block in iter_text_blocks(body):
+        if normalize_text(block["section"]) == "metadata":
+            continue
+        if block["type"] == "heading":
+            level = min(max(int(block.get("level", 2)), 1), 4)
+            text = html.escape(block["text"])
+            html_parts.append(f"<h{level}>{text}</h{level}>")
+        else:
+            rendered = markdown_inline_html(block["text"], highlight_ids, sentence_lookup)
+            html_parts.append(f"<p>{rendered}</p>")
+    return "\n".join(html_parts)
+
+
+def evidence_index_for_pmid_from_body(body: str) -> list[dict[str, Any]]:
+    sentences: list[dict[str, Any]] = []
+    for block in iter_text_blocks(body):
+        if block["type"] != "paragraph":
+            continue
+        if normalize_text(block["section"]) == "metadata":
+            continue
+        for index, sentence in enumerate(split_sentences(block["text"]), start=1):
+            if len(sentence) < 24:
+                continue
+            sentences.append(
+                {
+                    "id": f"s{block['line_start']}-{index}",
+                    "text": sentence,
+                    "section": block["section"],
+                    "line_start": block["line_start"],
+                    "line_end": block["line_end"],
+                }
+            )
+    return sentences
+
+
 def get_paper_by_pmid(pmid: str) -> dict[str, Any]:
     safe_pmid = re.sub(r"\D", "", pmid)
     path = CORPUS_DIR / f"pmid_{safe_pmid}.md"
@@ -208,6 +466,7 @@ def init_engine_background() -> None:
     import threading
 
     def _load(k):
+        global _engine_ready, _engine_error
         import asyncio
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
@@ -249,18 +508,24 @@ async def index(request: Request):
 
 
 @app.get("/papers/{pmid}", response_class=HTMLResponse)
-async def paper_page(pmid: str):
+async def paper_page(pmid: str, request: Request):
     detail = get_paper_by_pmid(pmid)
     metadata = detail["metadata"]
     title = metadata.get("title") or f"PMID {pmid}"
     body = detail["body"]
+    highlight_ids = {
+        item.strip()
+        for item in request.query_params.get("highlight", "").split(",")
+        if item.strip()
+    }
+    rendered_body = render_markdown_article(body, highlight_ids)
     fields = [
         ("PMID", metadata.get("pmid", pmid)),
         ("DOI", metadata.get("doi", "")),
         ("Year", metadata.get("year", "")),
         ("Journal", metadata.get("journal", "")),
         ("Priority", metadata.get("priority", "")),
-        ("Module", metadata.get("aps_modules", "")),
+        ("Module", display_module_label(metadata.get("aps_modules", ""))),
     ]
     field_html = "".join(
         f"<div><dt>{html.escape(label)}</dt><dd>{html.escape(value or 'missing')}</dd></div>"
@@ -282,12 +547,18 @@ async def paper_page(pmid: str):
     <main class="article-page">
         <a class="back-link" href="/">Back to workspace</a>
         <article class="article-shell">
-            <p class="eyebrow">Original Markdown</p>
+            <p class="eyebrow">Rendered paper</p>
             <h1>{html.escape(title)}</h1>
             <dl class="detail-grid">{field_html}</dl>
-            <pre class="article-body">{html.escape(body)}</pre>
+            <div class="article-body rendered-markdown">{rendered_body}</div>
         </article>
     </main>
+    <script>
+        const firstHighlight = document.querySelector(".cited-sentence");
+        if (firstHighlight) {{
+            firstHighlight.scrollIntoView({{ behavior: "smooth", block: "center" }});
+        }}
+    </script>
 </body>
 </html>"""
     )
@@ -323,6 +594,7 @@ async def api_health():
             "docs_count": docs_count,
             "texts_count": texts_count,
         },
+        "llm": llm_runtime_config(),
         "uploads_count": len(load_uploads_metadata()),
     }
 
@@ -344,6 +616,28 @@ async def api_papers():
 @app.get("/api/papers/{pmid}")
 async def api_paper_detail(pmid: str):
     return get_paper_by_pmid(pmid)
+
+
+@app.get("/api/papers/{pmid}/evidence")
+async def api_paper_evidence(pmid: str):
+    detail = get_paper_by_pmid(pmid)
+    return {
+        "pmid": re.sub(r"\D", "", pmid),
+        "title": detail["metadata"].get("title", f"PMID {pmid}"),
+        "sentences": list(evidence_index_for_pmid(pmid)),
+    }
+
+
+@app.post("/api/paperqa/resolve-evidence")
+async def api_resolve_evidence(request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    contexts = body.get("contexts") or []
+    if not isinstance(contexts, list):
+        raise HTTPException(status_code=400, detail="contexts must be a list")
+    return {"contexts": enrich_contexts_with_evidence(contexts)}
 
 
 @app.post("/api/paperqa/query")
@@ -372,10 +666,83 @@ async def api_query(request: Request):
     k = int(body.get("k", 10))
     max_sources = int(body.get("max_sources", 5))
     try:
-        return await engine_query(question=question, k=k, max_sources=max_sources)
+        result = await engine_query(question=question, k=k, max_sources=max_sources)
+        result["contexts"] = enrich_contexts_with_evidence(result.get("contexts", []))
+        result["llm"] = result.get("llm") or llm_runtime_config()["paperqa"]
+        result["draft_llm"] = llm_runtime_config()["draft"]
+        return result
     except Exception as exc:
         logger.exception("PaperQA query failed")
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/draft/paragraph")
+async def api_draft_paragraph(request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    mode = str(body.get("mode", "review")).strip().lower()
+    if mode != "review":
+        raise HTTPException(status_code=400, detail="Only review paragraph generation is enabled")
+
+    evidences = body.get("evidences") or []
+    if not isinstance(evidences, list) or not evidences:
+        raise HTTPException(status_code=400, detail="Select at least one evidence sentence")
+
+    clean_evidences = []
+    for item in evidences[:12]:
+        text = strip_markdown_inline(str(item.get("text", ""))).strip()
+        if not text:
+            continue
+        clean_evidences.append(
+            {
+                "pmid": str(item.get("pmid", "")),
+                "section": str(item.get("section", "")),
+                "text": text,
+            }
+        )
+    if not clean_evidences:
+        raise HTTPException(status_code=400, detail="Selected evidence is empty")
+
+    api_key = get_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured")
+
+    language = "Chinese" if str(body.get("lang", "en")).lower().startswith("zh") else "English"
+    evidence_lines = "\n".join(
+        f"- PMID {item['pmid']} [{item['section']}]: {item['text']}"
+        for item in clean_evidences
+    )
+    prompt = (
+        f"Write one concise {language} review paragraph for a scientific manuscript using only the evidence below.\n"
+        "Do not add claims that are not supported by the selected evidence. "
+        "Keep the tone suitable for a biomedical review article. "
+        "Mention PMID citations inline where useful.\n\n"
+        f"Selected evidence:\n{evidence_lines}"
+    )
+
+    from langchain_deepseek import ChatDeepSeek
+
+    config = llm_runtime_config()["draft"]
+    llm = ChatDeepSeek(
+        model=config["model"],
+        api_key=api_key,
+        temperature=config["temperature"],
+    )
+    try:
+        response = await llm.ainvoke(prompt)
+    except Exception as exc:
+        logger.exception("Draft generation failed")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "mode": mode,
+        "draft": getattr(response, "content", str(response)).strip(),
+        "llm": config,
+        "evidence_count": len(clean_evidences),
+    }
 
 
 @app.post("/api/upload")
