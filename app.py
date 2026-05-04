@@ -711,15 +711,18 @@ async def api_draft_paragraph(request: Request):
         raise HTTPException(status_code=503, detail="DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured")
 
     language = "Chinese" if str(body.get("lang", "en")).lower().startswith("zh") else "English"
+    instruction = strip_markdown_inline(str(body.get("instruction", ""))).strip()[:1200]
     evidence_lines = "\n".join(
         f"- PMID {item['pmid']} [{item['section']}]: {item['text']}"
         for item in clean_evidences
     )
+    instruction_block = f"\nParagraph goal from the user: {instruction}\n" if instruction else "\n"
     prompt = (
         f"Write one concise {language} review paragraph for a scientific manuscript using only the evidence below.\n"
         "Do not add claims that are not supported by the selected evidence. "
         "Keep the tone suitable for a biomedical review article. "
-        "Mention PMID citations inline where useful.\n\n"
+        "Mention PMID citations inline where useful.\n"
+        f"{instruction_block}\n"
         f"Selected evidence:\n{evidence_lines}"
     )
 
@@ -742,6 +745,110 @@ async def api_draft_paragraph(request: Request):
         "draft": getattr(response, "content", str(response)).strip(),
         "llm": config,
         "evidence_count": len(clean_evidences),
+    }
+
+
+@app.post("/api/draft/article")
+async def api_draft_article(request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    mode = str(body.get("mode", "review")).strip().lower()
+    if mode != "review":
+        raise HTTPException(status_code=400, detail="Only review article generation is enabled")
+
+    paragraphs = body.get("paragraphs") or []
+    if not isinstance(paragraphs, list) or not paragraphs:
+        raise HTTPException(status_code=400, detail="Add at least one paragraph plan")
+
+    clean_paragraphs = []
+    total_evidence_count = 0
+    for index, paragraph in enumerate(paragraphs[:8], start=1):
+        if not isinstance(paragraph, dict):
+            continue
+        instruction = strip_markdown_inline(str(paragraph.get("instruction", ""))).strip()[:800]
+        length = strip_markdown_inline(str(paragraph.get("length", ""))).strip()[:80]
+        evidences = paragraph.get("evidences") or []
+        clean_evidences = []
+        if isinstance(evidences, list):
+            for item in evidences[:10]:
+                if not isinstance(item, dict):
+                    continue
+                text = strip_markdown_inline(str(item.get("text", ""))).strip()
+                if not text:
+                    continue
+                clean_evidences.append(
+                    {
+                        "pmid": str(item.get("pmid", "")),
+                        "section": str(item.get("section", "")),
+                        "text": text,
+                    }
+                )
+        if instruction or clean_evidences:
+            clean_paragraphs.append(
+                {
+                    "index": index,
+                    "instruction": instruction,
+                    "length": length,
+                    "evidences": clean_evidences,
+                }
+            )
+            total_evidence_count += len(clean_evidences)
+
+    if not clean_paragraphs:
+        raise HTTPException(status_code=400, detail="Selected paragraph plans are empty")
+    if total_evidence_count == 0:
+        raise HTTPException(status_code=400, detail="Assign evidence to at least one paragraph")
+
+    api_key = get_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured")
+
+    language = "Chinese" if str(body.get("lang", "en")).lower().startswith("zh") else "English"
+    paragraph_blocks = []
+    for paragraph in clean_paragraphs:
+        length_line = f"\nApproximate length: {paragraph['length']}" if paragraph["length"] else ""
+        evidence_lines = "\n".join(
+            f"  - PMID {item['pmid']} [{item['section']}]: {item['text']}"
+            for item in paragraph["evidences"]
+        ) or "  - No direct evidence assigned."
+        paragraph_blocks.append(
+            f"Paragraph {paragraph['index']} goal: {paragraph['instruction'] or 'Use the assigned evidence to advance the review argument.'}\n"
+            f"{length_line}\n"
+            f"Evidence:\n{evidence_lines}"
+        )
+
+    prompt = (
+        f"Write a coherent multi-paragraph {language} biomedical review draft using the paragraph plans below.\n"
+        "Treat the plans as an ordered outline. Make transitions between paragraphs explicit and smooth. "
+        "Use only the supplied evidence for factual claims; do not invent unsupported claims. "
+        "Mention PMID citations inline where useful. Do not use bullet points unless the user asks for them.\n\n"
+        "Paragraph plans:\n"
+        + "\n\n".join(paragraph_blocks)
+    )
+
+    from langchain_deepseek import ChatDeepSeek
+
+    config = llm_runtime_config()["draft"]
+    llm = ChatDeepSeek(
+        model=config["model"],
+        api_key=api_key,
+        temperature=config["temperature"],
+    )
+    try:
+        response = await llm.ainvoke(prompt)
+    except Exception as exc:
+        logger.exception("Article draft generation failed")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "mode": mode,
+        "draft": getattr(response, "content", str(response)).strip(),
+        "llm": config,
+        "paragraph_count": len(clean_paragraphs),
+        "evidence_count": total_evidence_count,
     }
 
 

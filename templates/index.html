@@ -30,11 +30,11 @@
                 <h1 data-i18n="projectTitle">Choose a dataset</h1>
             </div>
             <div class="top-actions">
-                <div class="language-toggle" role="group" aria-label="Language">
+                <div class="language-toggle" role="group" aria-label="Language" data-i18n-aria-label="language">
                     <button class="lang-button active" type="button" data-lang="en">EN</button>
                     <button class="lang-button" type="button" data-lang="zh">中文</button>
                 </div>
-                <button class="user-chip" id="project-user-chip" type="button" title="Switch user"></button>
+                <button class="user-chip" id="project-user-chip" type="button" title="Switch user" data-i18n-title="switchUser"></button>
             </div>
         </header>
         <main class="project-grid" id="project-main">
@@ -54,11 +54,11 @@
                 <h1 data-i18n="appTitle">Literature Library</h1>
             </div>
             <div class="top-actions">
-                <div class="language-toggle" role="group" aria-label="Language">
+                <div class="language-toggle" role="group" aria-label="Language" data-i18n-aria-label="language">
                     <button class="lang-button active" type="button" data-lang="en">EN</button>
                     <button class="lang-button" type="button" data-lang="zh">中文</button>
                 </div>
-                <button class="user-chip" id="user-chip" type="button" title="Switch user"></button>
+                <button class="user-chip" id="user-chip" type="button" title="Switch user" data-i18n-title="switchUser"></button>
                 <div class="status-strip" id="status-strip">
                     <span class="status-dot status-waiting"></span>
                     <span id="engine-status" data-i18n="checkingPaperQA">Checking PaperQA</span>
@@ -99,6 +99,21 @@
                     </select>
                 </section>
 
+                <section class="panel evidence-library-panel">
+                    <div class="library-head">
+                        <div>
+                            <p class="panel-label" data-i18n="evidenceLibrary">Evidence Library</p>
+                            <p class="library-hint" data-i18n="evidenceLibraryHint">Checked PaperQA sentences are saved here.</p>
+                        </div>
+                        <span class="library-count" id="library-count">0</span>
+                    </div>
+                    <div class="library-list" id="library-list"></div>
+                    <div class="library-actions">
+                        <button class="secondary-button small-button" id="clear-library" type="button" data-i18n="clearLibrary">Clear</button>
+                        <button class="primary-button small-button" id="compose-button" type="button" data-i18n="composeArticle">Compose</button>
+                    </div>
+                </section>
+
                 <section class="panel">
                     <p class="panel-label" data-i18n="uploadPdf">Upload PDF</p>
                     <form id="upload-form" class="upload-form">
@@ -124,7 +139,7 @@
                             <h2 data-i18n="reviewReadyPapers">Literature Library</h2>
                         </div>
                         <div class="header-search">
-                            <input id="search-input" class="text-input" type="search" aria-label="Search literature" data-i18n-placeholder="searchPlaceholder" placeholder="Search PMID, title, journal, module">
+                            <input id="search-input" class="text-input" type="search" aria-label="Search literature" data-i18n-aria-label="searchLiterature" data-i18n-placeholder="searchPlaceholder" placeholder="Search PMID, title, journal, module">
                         </div>
                         <span class="result-count" id="paper-count" data-i18n="loading">Loading</span>
                     </div>
@@ -155,7 +170,7 @@
                             <div class="query-controls">
                                 <button class="primary-button" type="submit" data-i18n="askButton">Ask</button>
                                 <button class="secondary-button" type="button" data-question="What are the current diagnostic criteria for APS?" data-i18n="criteria">Criteria</button>
-                                <button class="secondary-button" type="button" data-question="What is the role of DOACs in APS management?">DOACs</button>
+                                <button class="secondary-button" type="button" data-question="What is the role of DOACs in APS management?" data-i18n="doacs">DOACs</button>
                                 <button class="secondary-button" type="button" data-question="How does complement activation contribute to pregnancy loss in APS?" data-i18n="complement">Complement</button>
                             </div>
                         </form>
@@ -183,6 +198,25 @@
                     <p class="empty-note" data-i18n="selectPaperEmpty">Select a paper to inspect metadata and abstract.</p>
                 </div>
             </aside>
+        </main>
+
+        <main class="article-compose-page hidden" id="article-compose-page">
+            <section class="article-compose-shell">
+                <div class="compose-page-header">
+                    <div>
+                        <p class="panel-label" data-i18n="articleComposer">Article Composer</p>
+                        <h2 data-i18n="articleComposerTitle">Build a multi-paragraph draft</h2>
+                        <p class="compose-page-copy" data-i18n="articleComposerHint">Arrange selected evidence into paragraph plans, then generate the draft in one pass.</p>
+                    </div>
+                    <button class="secondary-button" id="back-to-workspace" type="button" data-i18n="backWorkspace">Back to workspace</button>
+                </div>
+                <div class="article-compose-actions">
+                    <button class="secondary-button" id="add-paragraph" type="button" data-i18n="addParagraph">Add paragraph</button>
+                    <button class="primary-button" id="generate-article" type="button" data-i18n="generateArticle">Generate article</button>
+                </div>
+                <div class="article-paragraphs" id="article-paragraphs"></div>
+                <div class="draft-output hidden" id="article-output"></div>
+            </section>
         </main>
     </div>
 

@@ -6,6 +6,7 @@ const state = {
     lang: localStorage.getItem("litdb.lang") || "en",
     project: sessionStorage.getItem("litdb.project") || "",
     evidenceByKey: {},
+    evidenceLibrary: loadEvidenceLibrary(),
 };
 
 const i18n = {
@@ -15,6 +16,7 @@ const i18n = {
         loginCopy: "Enter your name to access the research workspace.",
         loginNameLabel: "User name",
         loginButton: "Enter workspace",
+        language: "Language",
         projectEyebrow: "Project hub",
         projectTitle: "Choose a dataset",
         apsKicker: "Active dataset",
@@ -26,10 +28,12 @@ const i18n = {
         checkingPaperQA: "Checking PaperQA",
         paperqaLLM: "PaperQA LLM",
         draftLLM: "Draft LLM",
+        docsUnit: "docs",
         corpus: "Corpus",
         papersMetric: "papers",
         filters: "Filters",
         search: "Search",
+        searchLiterature: "Search literature",
         searchPlaceholder: "Search PMID, title, journal, module",
         priority: "Priority",
         allPriorities: "All priorities",
@@ -38,6 +42,39 @@ const i18n = {
         priorityLow: "Low priority",
         module: "Module",
         allModules: "All modules",
+        evidenceLibrary: "Evidence Library",
+        evidenceLibraryHint: "Checked PaperQA sentences are saved here.",
+        noEvidenceSaved: "No selected sentences yet.",
+        previewEvidenceLibrary: "Load sample sentences",
+        loadingPreviewEvidence: "Loading sample sentences...",
+        previewEvidenceLoaded: "Sample sentences added.",
+        previewEvidenceFailed: "Could not load sample sentences.",
+        clearLibrary: "Clear",
+        composeArticle: "Compose",
+        removeEvidence: "Remove",
+        addToEvidenceLibrary: "Add to library",
+        inEvidenceLibrary: "In library",
+        organizeDraft: "Compose paragraph",
+        draftComposerHint: "Describe what this paragraph should argue, then choose the evidence for the model.",
+        paragraphBrief: "Paragraph goal",
+        paragraphBriefPlaceholder: "For example: summarize why immunothrombosis matters in APS infection risk.",
+        evidenceForParagraph: "Evidence for this paragraph",
+        selectedForParagraph: "selected for paragraph",
+        chooseEvidenceForDraft: "Choose evidence from the library first.",
+        articleComposer: "Article Composer",
+        articleComposerTitle: "Build a multi-paragraph draft",
+        articleComposerHint: "Arrange selected evidence into paragraph plans, then generate the draft in one pass.",
+        addParagraph: "Add paragraph",
+        removeParagraph: "Remove",
+        paragraphLabel: "Paragraph",
+        paragraphLength: "Approx. length",
+        paragraphLengthPlaceholder: "e.g. 180 words",
+        generateArticle: "Generate article",
+        generatedArticle: "Generated article",
+        generatingArticle: "Generating the article from paragraph plans...",
+        articleNeedEvidence: "Assign evidence to at least one paragraph.",
+        articleNeedParagraph: "Add at least one paragraph plan.",
+        paragraphEvidence: "Evidence assigned to this paragraph",
         uploadPdf: "Upload PDF",
         uploadButton: "Upload",
         pmidPlaceholder: "PMID",
@@ -53,6 +90,7 @@ const i18n = {
         queryPlaceholder: "Ask a focused APS question.",
         askButton: "Ask",
         criteria: "Criteria",
+        doacs: "DOACs",
         complement: "Complement",
         answerEmpty: "Answers and cited source snippets will appear here.",
         manualPdfs: "Manual PDFs",
@@ -63,10 +101,12 @@ const i18n = {
         signedInAs: "Uploading as",
         switchUser: "Switch user",
         noPapers: "No papers match the current filters.",
+        couldNotLoadPapers: "Could not load papers",
         shown: "shown",
         paperQANotReady: "PaperQA indexing",
         paperQAReady: "PaperQA ready",
         paperQAUnavailable: "PaperQA unavailable",
+        healthCheckFailed: "Health check failed",
         searchingCorpus: "Searching the corpus and preparing an answer...",
         noAnswer: "No answer returned.",
         sources: "Cited evidence",
@@ -84,6 +124,14 @@ const i18n = {
         selectEvidenceFirst: "Select evidence sentences first.",
         generatingDraft: "Generating a paragraph from selected evidence...",
         noUploads: "No uploaded PDFs yet.",
+        uploadStatusUploaded: "Uploaded",
+        uploadStatusIndexed: "Indexed",
+        toggleStatus: "Toggle status",
+        deleteUpload: "Delete",
+        deleteUploadConfirm: "Delete upload",
+        deleteFailed: "Delete failed",
+        updateFailed: "Update failed",
+        noCorpusData: "No corpus data",
         uploadMissing: "Select a PDF and PMID.",
         uploadNeedLogin: "Log in before uploading.",
         uploadingPdf: "Uploading PDF...",
@@ -91,6 +139,7 @@ const i18n = {
         unknownJournal: "Unknown journal",
         unknownDate: "Unknown date",
         noAbstract: "No abstract was found in the prepared Markdown.",
+        studyType: "Study Type",
         missing: "missing",
         backWorkspace: "Back to workspace",
         skipToContent: "Skip to content",
@@ -101,6 +150,7 @@ const i18n = {
         loginCopy: "输入用户名即可进入科研工作区。",
         loginNameLabel: "用户名",
         loginButton: "进入工作区",
+        language: "语言",
         projectEyebrow: "项目入口",
         projectTitle: "选择数据集",
         apsKicker: "当前数据集",
@@ -112,10 +162,12 @@ const i18n = {
         checkingPaperQA: "正在检查 PaperQA",
         paperqaLLM: "PaperQA 模型",
         draftLLM: "生成模型",
+        docsUnit: "篇索引文档",
         corpus: "文献库",
         papersMetric: "篇文献",
         filters: "筛选",
         search: "搜索",
+        searchLiterature: "搜索文献",
         searchPlaceholder: "搜索 PMID、标题、期刊、模块",
         priority: "优先度",
         allPriorities: "全部优先度",
@@ -124,6 +176,39 @@ const i18n = {
         priorityLow: "低优先度",
         module: "模块",
         allModules: "全部模块",
+        evidenceLibrary: "自选库",
+        evidenceLibraryHint: "勾选 PaperQA 句子后会保存到这里。",
+        noEvidenceSaved: "还没有选择句子。",
+        previewEvidenceLibrary: "导入示例句子",
+        loadingPreviewEvidence: "正在导入示例句子...",
+        previewEvidenceLoaded: "示例句子已加入。",
+        previewEvidenceFailed: "无法导入示例句子。",
+        clearLibrary: "清空",
+        composeArticle: "组文章",
+        removeEvidence: "移除",
+        addToEvidenceLibrary: "加入自选库",
+        inEvidenceLibrary: "已加入自选库",
+        organizeDraft: "组文章段落",
+        draftComposerHint: "先描述这一段要写什么，再选择交给 AI 的证据。",
+        paragraphBrief: "段落要求",
+        paragraphBriefPlaceholder: "例如：总结免疫血栓如何影响 APS 感染风险。",
+        evidenceForParagraph: "本段证据",
+        selectedForParagraph: "条证据用于本段",
+        chooseEvidenceForDraft: "请先从自选库选择证据。",
+        articleComposer: "组文章",
+        articleComposerTitle: "生成多段文章草稿",
+        articleComposerHint: "把自选库证据分配到不同段落，再一次性交给 AI 生成，让段落之间有承接关系。",
+        addParagraph: "添加段落",
+        removeParagraph: "删除",
+        paragraphLabel: "段落",
+        paragraphLength: "大约字数",
+        paragraphLengthPlaceholder: "例如：180 字",
+        generateArticle: "生成文章",
+        generatedArticle: "生成文章",
+        generatingArticle: "正在根据段落计划生成文章...",
+        articleNeedEvidence: "请至少给一个段落分配证据。",
+        articleNeedParagraph: "请至少添加一个段落计划。",
+        paragraphEvidence: "本段使用的证据",
         uploadPdf: "上传 PDF",
         uploadButton: "上传",
         pmidPlaceholder: "PMID",
@@ -139,6 +224,7 @@ const i18n = {
         queryPlaceholder: "输入一个具体的 APS 问题。",
         askButton: "提问",
         criteria: "诊断标准",
+        doacs: "DOACs",
         complement: "补体",
         answerEmpty: "这里会显示回答和可勾选的引用句子。",
         manualPdfs: "人工 PDF",
@@ -149,10 +235,12 @@ const i18n = {
         signedInAs: "当前上传用户",
         switchUser: "切换用户",
         noPapers: "没有文献符合当前筛选条件。",
+        couldNotLoadPapers: "无法加载文献",
         shown: "条结果",
         paperQANotReady: "PaperQA 正在索引",
         paperQAReady: "PaperQA 已就绪",
         paperQAUnavailable: "PaperQA 不可用",
+        healthCheckFailed: "健康检查失败",
         searchingCorpus: "正在检索文献库并生成回答...",
         noAnswer: "没有返回回答。",
         sources: "引用证据",
@@ -170,6 +258,14 @@ const i18n = {
         selectEvidenceFirst: "请先勾选证据句子。",
         generatingDraft: "正在根据所选证据生成段落...",
         noUploads: "暂无上传 PDF。",
+        uploadStatusUploaded: "已上传",
+        uploadStatusIndexed: "已索引",
+        toggleStatus: "切换状态",
+        deleteUpload: "删除",
+        deleteUploadConfirm: "删除上传记录",
+        deleteFailed: "删除失败",
+        updateFailed: "更新失败",
+        noCorpusData: "暂无文献库数据",
         uploadMissing: "请选择 PDF 并填写 PMID。",
         uploadNeedLogin: "请先登录后再上传。",
         uploadingPdf: "正在上传 PDF...",
@@ -177,6 +273,7 @@ const i18n = {
         unknownJournal: "未知期刊",
         unknownDate: "未知日期",
         noAbstract: "整理后的 Markdown 中没有找到摘要。",
+        studyType: "研究类型",
         missing: "缺失",
         backWorkspace: "返回工作区",
         skipToContent: "跳到主要内容",
@@ -199,6 +296,8 @@ const els = {
     skipLink: document.getElementById("skip-link"),
     projectScreen: document.getElementById("project-screen"),
     appShell: document.getElementById("app-shell"),
+    mainWorkspace: document.getElementById("main-workspace"),
+    articleComposePage: document.getElementById("article-compose-page"),
     loginForm: document.getElementById("login-form"),
     loginName: document.getElementById("login-name"),
     userChip: document.getElementById("user-chip"),
@@ -214,6 +313,10 @@ const els = {
     searchInput: document.getElementById("search-input"),
     priorityFilter: document.getElementById("priority-filter"),
     moduleFilter: document.getElementById("module-filter"),
+    libraryCount: document.getElementById("library-count"),
+    libraryList: document.getElementById("library-list"),
+    clearLibrary: document.getElementById("clear-library"),
+    composeButton: document.getElementById("compose-button"),
     papersBody: document.getElementById("papers-body"),
     paperCount: document.getElementById("paper-count"),
     paperDetail: document.getElementById("paper-detail"),
@@ -226,6 +329,11 @@ const els = {
     uploadMessage: document.getElementById("upload-message"),
     uploadsList: document.getElementById("uploads-list"),
     refreshUploads: document.getElementById("refresh-uploads"),
+    backToWorkspace: document.getElementById("back-to-workspace"),
+    addParagraph: document.getElementById("add-paragraph"),
+    generateArticle: document.getElementById("generate-article"),
+    articleParagraphs: document.getElementById("article-paragraphs"),
+    articleOutput: document.getElementById("article-output"),
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -234,8 +342,11 @@ document.addEventListener("DOMContentLoaded", () => {
     bindTabs();
     bindFilters();
     bindQuery();
+    bindEvidenceLibrary();
+    bindArticleComposer();
     bindUpload();
     applyLanguage();
+    renderEvidenceLibrary();
     refreshUserState();
     loadHealth();
     loadPapers();
@@ -297,9 +408,16 @@ function applyLanguage() {
     document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
         node.placeholder = t(node.dataset.i18nPlaceholder);
     });
+    document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
+        node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
+    });
+    document.querySelectorAll("[data-i18n-title]").forEach((node) => {
+        node.setAttribute("title", t(node.dataset.i18nTitle));
+    });
     document.querySelectorAll(".lang-button").forEach((button) => {
         button.classList.toggle("active", button.dataset.lang === state.lang);
     });
+    renderEvidenceLibrary();
 }
 
 function refreshUserState() {
@@ -308,6 +426,10 @@ function refreshUserState() {
     els.loginScreen.classList.toggle("hidden", hasUser);
     els.projectScreen.classList.toggle("hidden", !hasUser || inProject);
     els.appShell.classList.toggle("hidden", !inProject);
+    if (!inProject) {
+        els.articleComposePage.classList.add("hidden");
+        els.mainWorkspace.classList.remove("hidden");
+    }
     els.loginName.value = state.userName;
     els.userChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
     els.projectUserChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
@@ -318,12 +440,18 @@ function refreshUserState() {
 function bindTabs() {
     document.querySelectorAll(".tab-button").forEach((button) => {
         button.addEventListener("click", () => {
-            document.querySelectorAll(".tab-button").forEach((item) => item.classList.remove("active"));
-            document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
-            button.classList.add("active");
-            document.getElementById(`view-${button.dataset.view}`).classList.add("active");
+            activateView(button.dataset.view);
         });
     });
+}
+
+function activateView(view) {
+    document.querySelectorAll(".tab-button").forEach((item) => {
+        item.classList.toggle("active", item.dataset.view === view);
+    });
+    document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
+    const target = document.getElementById(`view-${view}`);
+    if (target) target.classList.add("active");
 }
 
 function bindFilters() {
@@ -357,6 +485,22 @@ function bindQuery() {
     });
 }
 
+function bindEvidenceLibrary() {
+    els.clearLibrary.addEventListener("click", () => {
+        state.evidenceLibrary = [];
+        saveEvidenceLibrary();
+        syncEvidenceCards();
+        renderEvidenceLibrary();
+    });
+    els.composeButton.addEventListener("click", openArticleComposer);
+}
+
+function bindArticleComposer() {
+    els.backToWorkspace.addEventListener("click", closeArticleComposer);
+    els.addParagraph.addEventListener("click", () => addArticleParagraph());
+    els.generateArticle.addEventListener("click", generateArticleDraft);
+}
+
 function bindUpload() {
     els.uploadForm.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -376,7 +520,7 @@ async function loadHealth() {
         els.engineStatus.textContent = loading
             ? t("paperQANotReady")
             : ready
-              ? `${t("paperQAReady")} · ${health.engine.docs_count} docs`
+              ? `${t("paperQAReady")} · ${health.engine.docs_count} ${t("docsUnit")}`
               : error
                 ? t("paperQAUnavailable")
                 : t("paperQANotReady");
@@ -384,7 +528,7 @@ async function loadHealth() {
         renderPrioritySummary(health.corpus ? health.corpus.priority_counts : {});
         renderLlmInfo(health.llm);
     } catch (error) {
-        els.engineStatus.textContent = "Health check failed";
+        els.engineStatus.textContent = t("healthCheckFailed");
         els.statusStrip.querySelector(".status-dot").className = "status-dot status-error";
     }
 }
@@ -396,7 +540,7 @@ async function loadPapers() {
         populateModuleFilter(data.summary ? data.summary.module_counts : {});
         applyFilters();
     } catch (error) {
-        els.papersBody.innerHTML = `<tr><td colspan="3" class="error-text">Could not load papers: ${escapeHtml(error.message)}</td></tr>`;
+        els.papersBody.innerHTML = `<tr><td colspan="3" class="error-text">${escapeHtml(t("couldNotLoadPapers"))}: ${escapeHtml(error.message)}</td></tr>`;
     }
 }
 
@@ -468,7 +612,7 @@ async function selectPaper(pmid) {
             <div><dt>${escapeHtml(t("journal"))}</dt><dd>${escapeHtml(paper.journal || t("unknownJournal"))}</dd></div>
             <div><dt>${escapeHtml(t("priority"))}</dt><dd>${escapeHtml(localizePriority(paper.priority || t("missing")))}</dd></div>
             <div><dt>${escapeHtml(t("module"))}</dt><dd>${escapeHtml(compactModules(paper.aps_modules))}</dd></div>
-            <div><dt>Study Type</dt><dd>${escapeHtml(paper.study_types || t("missing"))}</dd></div>
+            <div><dt>${escapeHtml(t("studyType"))}</dt><dd>${escapeHtml(paper.study_types || t("missing"))}</dd></div>
             <div><dt>DOI</dt><dd>${escapeHtml(paper.doi || t("missing"))}</dd></div>
         </dl>
         <a class="source-link" href="/papers/${encodeURIComponent(paper.pmid)}" target="_blank" rel="noopener">${escapeHtml(t("openPaper"))}</a>
@@ -514,7 +658,6 @@ function renderSources(contexts) {
                 <span class="evidence-count">${evidenceCount}</span>
             </div>
             ${contexts.map((source, index) => renderSource(source, index)).join("")}
-            ${renderDraftBuilder(evidenceCount)}
         </div>
     `;
 }
@@ -543,13 +686,17 @@ function renderSource(source, index) {
 function renderEvidenceSentence(source, sentence) {
     const key = `${sentence.pmid || source.pmid}:${sentence.id}`;
     state.evidenceByKey[key] = { ...sentence, pmid: sentence.pmid || source.pmid, citation: source.citation || source.name || "" };
+    const saved = evidenceLibraryHas(key);
     return `
-        <label class="evidence-card">
-            <input class="evidence-check" type="checkbox" data-key="${escapeHtml(key)}" checked>
+        <label class="evidence-card is-highlighted ${saved ? "saved" : ""}">
+            <input class="evidence-check" type="checkbox" data-key="${escapeHtml(key)}" ${saved ? "checked" : ""}>
             <span class="evidence-content">
                 <span class="evidence-meta">PMID ${escapeHtml(sentence.pmid || source.pmid || "")} · ${escapeHtml(sentence.section || "")}</span>
                 <span class="evidence-text">${escapeHtml(sentence.text || "")}</span>
-                <a class="source-link" href="${escapeHtml(sentence.url || source.url || "")}" target="_blank" rel="noopener">${escapeHtml(t("openHighlighted"))}</a>
+                <span class="evidence-action-row">
+                    <span class="evidence-state">${escapeHtml(saved ? t("inEvidenceLibrary") : t("addToEvidenceLibrary"))}</span>
+                    <a class="source-link evidence-link" href="${escapeHtml(sentence.url || source.url || "")}" target="_blank" rel="noopener">${escapeHtml(t("openPaper"))}</a>
+                </span>
             </span>
         </label>
     `;
@@ -582,34 +729,359 @@ function renderDraftBuilder(evidenceCount) {
 
 function bindEvidenceControls() {
     document.querySelectorAll(".evidence-check").forEach((checkbox) => {
-        checkbox.addEventListener("change", updateSelectedEvidenceCount);
+        checkbox.addEventListener("change", () => {
+            if (checkbox.checked) {
+                addEvidenceToLibrary(checkbox.dataset.key);
+            } else {
+                removeEvidenceFromLibrary(checkbox.dataset.key);
+            }
+            syncEvidenceCards();
+            renderEvidenceLibrary();
+        });
     });
-    const button = document.getElementById("generate-draft");
-    if (button) {
-        button.addEventListener("click", generateDraftParagraph);
-    }
-    updateSelectedEvidenceCount();
+    document.querySelectorAll(".evidence-link").forEach((link) => {
+        link.addEventListener("click", (event) => event.stopPropagation());
+    });
+    syncEvidenceCards();
 }
 
-function selectedEvidence() {
-    return Array.from(document.querySelectorAll(".evidence-check:checked"))
-        .map((checkbox) => state.evidenceByKey[checkbox.dataset.key])
+function addEvidenceToLibrary(key) {
+    const evidence = state.evidenceByKey[key];
+    if (!evidence || evidenceLibraryHas(key)) return;
+    state.evidenceLibrary.push({ key, ...evidence });
+    saveEvidenceLibrary();
+}
+
+function removeEvidenceFromLibrary(key) {
+    state.evidenceLibrary = state.evidenceLibrary.filter((item) => item.key !== key);
+    saveEvidenceLibrary();
+}
+
+function evidenceLibraryHas(key) {
+    return state.evidenceLibrary.some((item) => item.key === key);
+}
+
+function loadEvidenceLibrary() {
+    try {
+        const items = JSON.parse(localStorage.getItem("litdb.evidenceLibrary") || "[]");
+        return Array.isArray(items) ? items : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveEvidenceLibrary() {
+    localStorage.setItem("litdb.evidenceLibrary", JSON.stringify(state.evidenceLibrary.slice(0, 60)));
+}
+
+function renderEvidenceLibrary() {
+    if (!els.libraryList) return;
+    els.libraryCount.textContent = String(state.evidenceLibrary.length);
+    els.composeButton.disabled = !state.evidenceLibrary.length;
+    els.clearLibrary.disabled = !state.evidenceLibrary.length;
+    if (!state.evidenceLibrary.length) {
+        els.libraryList.innerHTML = `
+            <div class="library-empty">
+                <p class="empty-note compact-note">${escapeHtml(t("noEvidenceSaved"))}</p>
+                <button class="secondary-button small-button library-preview-button" id="preview-library" type="button">${escapeHtml(t("previewEvidenceLibrary"))}</button>
+            </div>
+        `;
+        document.getElementById("preview-library")?.addEventListener("click", seedEvidenceLibraryFromPaper);
+        return;
+    }
+    els.libraryList.innerHTML = state.evidenceLibrary.map((item) => `
+        <div class="library-item">
+            <p>${escapeHtml(item.text || "")}</p>
+            <div class="library-meta">
+                <span>PMID ${escapeHtml(item.pmid || "")}</span>
+                <button class="text-button remove-library-item" type="button" data-key="${escapeHtml(item.key)}">${escapeHtml(t("removeEvidence"))}</button>
+            </div>
+        </div>
+    `).join("");
+    document.querySelectorAll(".remove-library-item").forEach((button) => {
+        button.addEventListener("click", () => {
+            removeEvidenceFromLibrary(button.dataset.key);
+            syncEvidenceCards();
+            renderEvidenceLibrary();
+        });
+    });
+}
+
+async function seedEvidenceLibraryFromPaper() {
+    const button = document.getElementById("preview-library");
+    if (button) {
+        button.disabled = true;
+        button.textContent = t("loadingPreviewEvidence");
+    }
+    const fallbackPaper = state.papers.find((paper) => paper.pmid) || {};
+    const pmid = state.selectedPmid || fallbackPaper.pmid || "41420536";
+    try {
+        const data = await fetchJson(`/api/papers/${encodeURIComponent(pmid)}/evidence`);
+        const sample = (data.sentences || [])
+            .filter((item) => (item.text || "").length > 80)
+            .slice(0, 4);
+        for (const sentence of sample) {
+            const key = `${sentence.pmid || data.pmid}:${sentence.id}`;
+            if (evidenceLibraryHas(key)) continue;
+            state.evidenceLibrary.push({
+                key,
+                ...sentence,
+                pmid: sentence.pmid || data.pmid,
+                citation: data.title || "",
+                url: `/papers/${encodeURIComponent(sentence.pmid || data.pmid)}?highlight=${encodeURIComponent(sentence.id)}#${encodeURIComponent(sentence.id)}`,
+            });
+        }
+        saveEvidenceLibrary();
+        syncEvidenceCards();
+        renderEvidenceLibrary();
+    } catch (error) {
+        if (button) {
+            button.disabled = false;
+            button.textContent = t("previewEvidenceLibrary");
+        }
+        els.libraryList.insertAdjacentHTML("beforeend", `<p class="error-text">${escapeHtml(t("previewEvidenceFailed"))}</p>`);
+    }
+}
+
+function syncEvidenceCards() {
+    document.querySelectorAll(".evidence-check").forEach((checkbox) => {
+        const saved = evidenceLibraryHas(checkbox.dataset.key);
+        checkbox.checked = saved;
+        const card = checkbox.closest(".evidence-card");
+        if (card) card.classList.toggle("saved", saved);
+        const stateNode = card ? card.querySelector(".evidence-state") : null;
+        if (stateNode) stateNode.textContent = saved ? t("inEvidenceLibrary") : t("addToEvidenceLibrary");
+    });
+}
+
+function openArticleComposer() {
+    if (!state.evidenceLibrary.length) return;
+    els.mainWorkspace.classList.add("hidden");
+    els.articleComposePage.classList.remove("hidden");
+    els.skipLink.href = "#article-compose-page";
+    els.articleOutput.classList.add("hidden");
+    els.articleOutput.innerHTML = "";
+    if (!els.articleParagraphs.children.length) {
+        addArticleParagraph();
+        addArticleParagraph();
+    } else {
+        refreshArticleParagraphEvidence();
+    }
+    els.articleComposePage.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeArticleComposer() {
+    els.articleComposePage.classList.add("hidden");
+    els.mainWorkspace.classList.remove("hidden");
+    els.skipLink.href = "#main-workspace";
+}
+
+function addArticleParagraph() {
+    const paragraphIndex = els.articleParagraphs.children.length + 1;
+    const evidenceItems = renderArticleEvidenceChoices(paragraphIndex);
+    els.articleParagraphs.insertAdjacentHTML("beforeend", `
+        <section class="article-paragraph-card" data-paragraph-id="${Date.now()}-${paragraphIndex}">
+            <div class="article-paragraph-head">
+                <h3>${escapeHtml(t("paragraphLabel"))} ${paragraphIndex}</h3>
+                <button class="text-button remove-paragraph" type="button">${escapeHtml(t("removeParagraph"))}</button>
+            </div>
+            <label class="field-label">${escapeHtml(t("paragraphBrief"))}</label>
+            <textarea class="query-input compact-query paragraph-goal" placeholder="${escapeHtml(t("paragraphBriefPlaceholder"))}"></textarea>
+            <label class="field-label">${escapeHtml(t("paragraphLength"))}</label>
+            <input class="text-input paragraph-length" type="text" inputmode="numeric" placeholder="${escapeHtml(t("paragraphLengthPlaceholder"))}">
+            <div class="compose-evidence-head">
+                <span>${escapeHtml(t("paragraphEvidence"))}</span>
+                <span class="paragraph-evidence-count"></span>
+            </div>
+            <div class="compose-evidence-list paragraph-evidence-list">${evidenceItems}</div>
+        </section>
+    `);
+    bindArticleParagraphCard(els.articleParagraphs.lastElementChild);
+    updateArticleParagraphLabels();
+}
+
+function renderArticleEvidenceChoices(paragraphIndex) {
+    const splitAt = Math.ceil(state.evidenceLibrary.length / 2);
+    return state.evidenceLibrary.map((item, itemIndex) => {
+        const checked = paragraphIndex === 1
+            ? itemIndex < splitAt
+            : paragraphIndex === 2
+              ? itemIndex >= splitAt
+              : false;
+        return `
+            <label class="compose-evidence-item">
+                <input class="article-evidence-check" type="checkbox" data-key="${escapeHtml(item.key)}" ${checked ? "checked" : ""}>
+                <span>
+                    <strong>PMID ${escapeHtml(item.pmid || "")}</strong>
+                    <small>${escapeHtml(item.section || "")}</small>
+                    <em>${escapeHtml(item.text || "")}</em>
+                </span>
+            </label>
+        `;
+    }).join("");
+}
+
+function bindArticleParagraphCard(card) {
+    card.querySelector(".remove-paragraph").addEventListener("click", () => {
+        card.remove();
+        updateArticleParagraphLabels();
+    });
+    card.querySelectorAll(".article-evidence-check").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => updateArticleParagraphCount(card));
+    });
+    updateArticleParagraphCount(card);
+}
+
+function updateArticleParagraphLabels() {
+    Array.from(els.articleParagraphs.children).forEach((card, index) => {
+        card.querySelector("h3").textContent = `${t("paragraphLabel")} ${index + 1}`;
+        updateArticleParagraphCount(card);
+    });
+}
+
+function updateArticleParagraphCount(card) {
+    const count = card.querySelectorAll(".article-evidence-check:checked").length;
+    const node = card.querySelector(".paragraph-evidence-count");
+    if (node) node.textContent = `${count} ${t("selectedForParagraph")}`;
+}
+
+function refreshArticleParagraphEvidence() {
+    els.articleParagraphs.innerHTML = "";
+    addArticleParagraph();
+    addArticleParagraph();
+}
+
+function collectArticleParagraphs() {
+    return Array.from(els.articleParagraphs.children).map((card) => {
+        const instruction = (card.querySelector(".paragraph-goal")?.value || "").trim();
+        const length = (card.querySelector(".paragraph-length")?.value || "").trim();
+        const evidences = Array.from(card.querySelectorAll(".article-evidence-check:checked"))
+            .map((checkbox) => state.evidenceLibrary.find((item) => item.key === checkbox.dataset.key))
+            .filter(Boolean);
+        return { instruction, length, evidences };
+    }).filter((paragraph) => paragraph.instruction || paragraph.length || paragraph.evidences.length);
+}
+
+async function generateArticleDraft() {
+    const paragraphs = collectArticleParagraphs();
+    if (!paragraphs.length) {
+        showArticleOutput(`<p class="error-text">${escapeHtml(t("articleNeedParagraph"))}</p>`);
+        return;
+    }
+    if (!paragraphs.some((paragraph) => paragraph.evidences.length)) {
+        showArticleOutput(`<p class="error-text">${escapeHtml(t("articleNeedEvidence"))}</p>`);
+        return;
+    }
+    showArticleOutput(`<p class="empty-note">${escapeHtml(t("generatingArticle"))}</p>`);
+    try {
+        const result = await fetchJson("/api/draft/article", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "review", lang: state.lang, paragraphs }),
+        });
+        renderLlmInfo({ draft: result.llm });
+        showArticleOutput(`
+            <div class="answer-header">
+                <h3>${escapeHtml(t("generatedArticle"))}</h3>
+                <span class="llm-badge">${escapeHtml(formatLlm(result.llm))}</span>
+            </div>
+            <div class="answer-text">${escapeHtml(result.draft || "")}</div>
+        `);
+    } catch (error) {
+        showArticleOutput(`<p class="error-text">${escapeHtml(formatError(error.message))}</p>`);
+    }
+}
+
+function showArticleOutput(html) {
+    els.articleOutput.classList.remove("hidden");
+    els.articleOutput.innerHTML = html;
+    els.articleOutput.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function openDraftComposer() {
+    activateView("ask");
+    els.answerPanel.innerHTML = renderDraftComposer();
+    bindDraftComposer();
+    els.answerPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderDraftComposer() {
+    const evidenceOptions = state.evidenceLibrary.map((item) => `
+        <label class="compose-evidence-item">
+            <input class="compose-evidence-check" type="checkbox" data-key="${escapeHtml(item.key)}" checked>
+            <span>
+                <strong>PMID ${escapeHtml(item.pmid || "")}</strong>
+                <small>${escapeHtml(item.section || "")}</small>
+                <em>${escapeHtml(item.text || "")}</em>
+            </span>
+        </label>
+    `).join("");
+    return `
+        <section class="compose-panel">
+            <div class="answer-header">
+                <div>
+                    <p class="panel-label">${escapeHtml(t("organizeDraft"))}</p>
+                    <h3>${escapeHtml(t("reviewMode"))}</h3>
+                </div>
+            </div>
+            <p class="evidence-hint">${escapeHtml(t("draftComposerHint"))}</p>
+            <label class="field-label" for="paragraph-brief">${escapeHtml(t("paragraphBrief"))}</label>
+            <textarea id="paragraph-brief" class="query-input compact-query" placeholder="${escapeHtml(t("paragraphBriefPlaceholder"))}"></textarea>
+            <div class="draft-mode-row">
+                <label class="mode-option active">
+                    <input type="radio" name="draft-mode" value="review" checked>
+                    <span>${escapeHtml(t("reviewMode"))}</span>
+                </label>
+                ${["grantMode", "clinicalMode", "slideMode"].map((key) => `
+                    <label class="mode-option disabled" title="${escapeHtml(t("disabledSoon"))}">
+                        <input type="radio" name="draft-mode" disabled>
+                        <span>${escapeHtml(t(key))}</span>
+                    </label>
+                `).join("")}
+            </div>
+            <div class="compose-evidence-head">
+                <span>${escapeHtml(t("evidenceForParagraph"))}</span>
+                <span id="compose-evidence-count"></span>
+            </div>
+            <div class="compose-evidence-list">${evidenceOptions || `<p class="empty-note">${escapeHtml(t("chooseEvidenceForDraft"))}</p>`}</div>
+            <div class="draft-actions">
+                <span></span>
+                <button class="primary-button" id="generate-draft" type="button">${escapeHtml(t("generateFromEvidence"))}</button>
+            </div>
+            <div class="draft-output hidden" id="draft-output"></div>
+        </section>
+    `;
+}
+
+function bindDraftComposer() {
+    document.querySelectorAll(".compose-evidence-check").forEach((checkbox) => {
+        checkbox.addEventListener("change", updateComposerEvidenceCount);
+    });
+    const button = document.getElementById("generate-draft");
+    if (button) button.addEventListener("click", generateDraftParagraph);
+    updateComposerEvidenceCount();
+}
+
+function selectedComposerEvidence() {
+    return Array.from(document.querySelectorAll(".compose-evidence-check:checked"))
+        .map((checkbox) => state.evidenceLibrary.find((item) => item.key === checkbox.dataset.key))
         .filter(Boolean);
 }
 
-function updateSelectedEvidenceCount() {
-    const node = document.getElementById("selected-evidence-count");
+function updateComposerEvidenceCount() {
+    const node = document.getElementById("compose-evidence-count");
     if (node) {
-        node.textContent = `${selectedEvidence().length} ${t("selectedEvidence")}`;
+        node.textContent = `${selectedComposerEvidence().length} ${t("selectedForParagraph")}`;
     }
 }
 
 async function generateDraftParagraph() {
-    const evidences = selectedEvidence();
+    const evidences = selectedComposerEvidence();
     const output = document.getElementById("draft-output");
+    const instruction = (document.getElementById("paragraph-brief")?.value || "").trim();
     if (!evidences.length) {
         output.classList.remove("hidden");
-        output.innerHTML = `<p class="error-text">${escapeHtml(t("selectEvidenceFirst"))}</p>`;
+        output.innerHTML = `<p class="error-text">${escapeHtml(t("chooseEvidenceForDraft"))}</p>`;
         return;
     }
     output.classList.remove("hidden");
@@ -618,7 +1090,7 @@ async function generateDraftParagraph() {
         const result = await fetchJson("/api/draft/paragraph", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "review", lang: state.lang, evidences }),
+            body: JSON.stringify({ mode: "review", lang: state.lang, instruction, evidences }),
         });
         renderLlmInfo({ draft: result.llm });
         output.innerHTML = `
@@ -688,9 +1160,9 @@ async function loadUploads() {
                             <p class="upload-meta">${escapeHtml(upload.uploader_name)} · ${formatDate(upload.uploaded_at)} · ${formatSize(upload.file_size)}</p>
                         </div>
                         <div class="upload-actions">
-                            <span class="status-pill status-${escapeHtml(String(upload.status || "uploaded").toLowerCase().replace(/\s+/g, "-"))}">${escapeHtml(upload.status || "uploaded")}</span>
-                            <button class="icon-button status-toggle" data-id="${escapeHtml(String(upload.id))}" data-status="${escapeHtml(String(upload.status || "uploaded"))}" title="Toggle status">↻</button>
-                            <button class="icon-button delete-btn" data-id="${escapeHtml(String(upload.id))}" title="Delete">×</button>
+                            <span class="status-pill status-${escapeHtml(String(upload.status || "uploaded").toLowerCase().replace(/\s+/g, "-"))}">${escapeHtml(localizeUploadStatus(upload.status || "uploaded"))}</span>
+                            <button class="icon-button status-toggle" data-id="${escapeHtml(String(upload.id))}" data-status="${escapeHtml(String(upload.status || "uploaded"))}" title="${escapeHtml(t("toggleStatus"))}">↻</button>
+                            <button class="icon-button delete-btn" data-id="${escapeHtml(String(upload.id))}" title="${escapeHtml(t("deleteUpload"))}">×</button>
                         </div>
                     </div>
                 `).join("")}
@@ -700,12 +1172,12 @@ async function loadUploads() {
         document.querySelectorAll(".delete-btn").forEach((btn) => {
             btn.addEventListener("click", async () => {
                 const id = Number(btn.dataset.id);
-                if (!confirm(`Delete upload #${id}?`)) return;
+                if (!confirm(`${t("deleteUploadConfirm")} #${id}?`)) return;
                 try {
                     await fetchJson(`/api/uploads/${id}`, { method: "DELETE" });
                     loadUploads();
                 } catch (err) {
-                    alert("Delete failed: " + err.message);
+                    alert(`${t("deleteFailed")}: ${err.message}`);
                 }
             });
         });
@@ -723,7 +1195,7 @@ async function loadUploads() {
                     });
                     loadUploads();
                 } catch (err) {
-                    alert("Update failed: " + err.message);
+                    alert(`${t("updateFailed")}: ${err.message}`);
                 }
             });
         });
@@ -736,7 +1208,7 @@ function renderPrioritySummary(counts) {
     const entries = Object.entries(counts || {});
     els.prioritySummary.innerHTML = entries.length
         ? entries.map(([key, value]) => `<span class="pill">${escapeHtml(localizePriority(key))} ${value}</span>`).join("")
-        : '<span class="pill">No corpus data</span>';
+        : `<span class="pill">${escapeHtml(t("noCorpusData"))}</span>`;
 }
 
 function renderLlmInfo(llm) {
@@ -805,6 +1277,13 @@ function localizePriority(value) {
     if (key === "medium") return t("priorityMedium");
     if (key === "low") return t("priorityLow");
     if (key === "missing") return t("missing");
+    return value;
+}
+
+function localizeUploadStatus(value) {
+    const key = String(value || "").toLowerCase();
+    if (key === "uploaded") return t("uploadStatusUploaded");
+    if (key === "indexed") return t("uploadStatusIndexed");
     return value;
 }
 
