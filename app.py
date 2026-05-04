@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import html
+import uuid
 from functools import lru_cache
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,8 @@ UPLOAD_DIR = Path(os.environ.get("PAPER_UPLOAD_DIR", ROOT / "uploads")).resolve(
 UPLOAD_METADATA_FILE = Path(
     os.environ.get("PAPER_UPLOAD_METADATA", UPLOAD_DIR / "uploads_metadata.json")
 ).resolve()
+USER_METADATA_FILE = Path(os.environ.get("LITDB_USERS_FILE", UPLOAD_DIR / "users.json")).resolve()
+DRAFT_HISTORY_FILE = Path(os.environ.get("LITDB_DRAFT_HISTORY_FILE", UPLOAD_DIR / "draft_history.json")).resolve()
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8081"))
@@ -346,7 +349,14 @@ def enrich_contexts_with_evidence(contexts: list[dict[str, Any]]) -> list[dict[s
     return enriched
 
 
-def markdown_inline_html(text: str, highlight_ids: set[str], sentence_lookup: dict[str, str]) -> str:
+def markdown_inline_html(
+    text: str,
+    highlight_ids: set[str],
+    sentence_lookup: dict[str, str],
+    sentence_meta: dict[str, dict[str, Any]],
+    pmid: str,
+    title: str,
+) -> str:
     parts = []
     remaining = text
     for sentence in split_sentences(text):
@@ -357,7 +367,17 @@ def markdown_inline_html(text: str, highlight_ids: set[str], sentence_lookup: di
             classes += " cited-sentence"
         safe = html.escape(sentence)
         if sentence_id:
-            parts.append(f'<span class="{classes}" id="{html.escape(sentence_id)}">{safe}</span>')
+            meta = sentence_meta.get(sentence_id, {})
+            section = html.escape(str(meta.get("section", "")))
+            url = f"/papers/{pmid}?highlight={sentence_id}#{sentence_id}"
+            parts.append(
+                f'<span class="{classes}" id="{html.escape(sentence_id)}" '
+                f'data-sentence-id="{html.escape(sentence_id)}" '
+                f'data-pmid="{html.escape(pmid)}" '
+                f'data-section="{section}" '
+                f'data-title="{html.escape(title)}" '
+                f'data-url="{html.escape(url)}">{safe}</span>'
+            )
         else:
             parts.append(safe)
         if idx >= 0:
@@ -367,9 +387,10 @@ def markdown_inline_html(text: str, highlight_ids: set[str], sentence_lookup: di
     return " ".join(parts)
 
 
-def render_markdown_article(body: str, highlight_ids: set[str]) -> str:
+def render_markdown_article(body: str, highlight_ids: set[str], pmid: str, title: str) -> str:
     index = evidence_index_for_pmid_from_body(body)
     sentence_lookup = {normalize_text(item["text"]): item["id"] for item in index}
+    sentence_meta = {item["id"]: item for item in index}
     html_parts: list[str] = []
     for block in iter_text_blocks(body):
         if normalize_text(block["section"]) == "metadata":
@@ -379,7 +400,7 @@ def render_markdown_article(body: str, highlight_ids: set[str]) -> str:
             text = html.escape(block["text"])
             html_parts.append(f"<h{level}>{text}</h{level}>")
         else:
-            rendered = markdown_inline_html(block["text"], highlight_ids, sentence_lookup)
+            rendered = markdown_inline_html(block["text"], highlight_ids, sentence_lookup, sentence_meta, pmid, title)
             html_parts.append(f"<p>{rendered}</p>")
     return "\n".join(html_parts)
 
@@ -447,6 +468,75 @@ def save_uploads_metadata(metadata: list[dict[str, Any]]) -> None:
     )
 
 
+def load_json_list(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        logger.warning("JSON metadata file could not be read: %s", path)
+        return []
+
+
+def save_json_list(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def normalize_user_name(name: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(name or "")).strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="User name is required")
+    return cleaned[:80]
+
+
+def find_user_by_token(token: str | None) -> dict[str, Any] | None:
+    if not token:
+        return None
+    for user in load_json_list(USER_METADATA_FILE):
+        if user.get("token") == token:
+            return user
+    return None
+
+
+def resolve_user_from_body(body: dict[str, Any]) -> dict[str, Any] | None:
+    user = find_user_by_token(str(body.get("user_token") or ""))
+    if user:
+        return user
+    name = str(body.get("user_name") or "").strip()
+    if not name:
+        return None
+    return {"id": None, "name": normalize_user_name(name), "token": ""}
+
+
+def save_draft_record(
+    *,
+    user: dict[str, Any] | None,
+    draft_type: str,
+    draft: str,
+    evidence_count: int,
+    paragraph_count: int = 1,
+    prompt_meta: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if not user:
+        return None
+    records = load_json_list(DRAFT_HISTORY_FILE)
+    record = {
+        "id": str(uuid.uuid4()),
+        "user_id": user.get("id"),
+        "user_name": user.get("name", ""),
+        "type": draft_type,
+        "draft": draft,
+        "evidence_count": evidence_count,
+        "paragraph_count": paragraph_count,
+        "prompt_meta": prompt_meta or {},
+        "created_at": datetime.now().isoformat(),
+    }
+    records.append(record)
+    save_json_list(DRAFT_HISTORY_FILE, records[-500:])
+    return record
+
+
 def safe_upload_name(filename: str, pmid: str) -> str:
     suffix = Path(filename).suffix.lower()
     base = Path(filename).stem
@@ -507,6 +597,48 @@ async def index(request: Request):
     return templates.TemplateResponse(request, "index.html")
 
 
+@app.post("/api/auth/login")
+async def api_auth_login(request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    name = normalize_user_name(str(body.get("name", "")))
+    users = load_json_list(USER_METADATA_FILE)
+    now = datetime.now().isoformat()
+    for user in users:
+        if str(user.get("name", "")).casefold() == name.casefold():
+            user["name"] = name
+            user["last_seen_at"] = now
+            save_json_list(USER_METADATA_FILE, users)
+            return {"user": user}
+
+    user = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "token": str(uuid.uuid4()),
+        "created_at": now,
+        "last_seen_at": now,
+    }
+    users.append(user)
+    save_json_list(USER_METADATA_FILE, users)
+    return {"user": user}
+
+
+@app.get("/api/drafts")
+async def api_drafts(request: Request):
+    user = find_user_by_token(request.query_params.get("user_token"))
+    if not user:
+        return {"drafts": []}
+    records = [
+        item for item in load_json_list(DRAFT_HISTORY_FILE)
+        if item.get("user_id") == user.get("id")
+    ]
+    records.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    return {"drafts": records[:100]}
+
+
 @app.get("/papers/{pmid}", response_class=HTMLResponse)
 async def paper_page(pmid: str, request: Request):
     detail = get_paper_by_pmid(pmid)
@@ -518,7 +650,7 @@ async def paper_page(pmid: str, request: Request):
         for item in request.query_params.get("highlight", "").split(",")
         if item.strip()
     }
-    rendered_body = render_markdown_article(body, highlight_ids)
+    rendered_body = render_markdown_article(body, highlight_ids, re.sub(r"\D", "", pmid), title)
     fields = [
         ("PMID", metadata.get("pmid", pmid)),
         ("DOI", metadata.get("doi", "")),
@@ -558,6 +690,195 @@ async def paper_page(pmid: str, request: Request):
         if (firstHighlight) {{
             firstHighlight.scrollIntoView({{ behavior: "smooth", block: "center" }});
         }}
+        const articleLang = localStorage.getItem("litdb.lang") || "en";
+        const text = {{
+            en: {{ add: "Add selected sentence", added: "Added to Evidence Library", removed: "Removed from Evidence Library", hint: "Click a sentence to add it to your Evidence Library.", compose: "Compose", library: "Evidence Library", empty: "No selected sentences.", remove: "Remove" }},
+            zh: {{ add: "加入自选库", added: "已加入自选库", removed: "已从自选库移除", hint: "点击任意句子，可加入你的自选库。", compose: "组文章", library: "自选库", empty: "还没有选择句子。", remove: "移除" }}
+        }};
+        const labels = text[articleLang] || text.en;
+        const notice = document.createElement("div");
+        notice.className = "article-selection-toast";
+        notice.textContent = labels.hint;
+        document.body.appendChild(notice);
+        function showArticleToast(message) {{
+            notice.textContent = message;
+            notice.classList.add("visible");
+            window.clearTimeout(notice._timer);
+            notice._timer = window.setTimeout(() => notice.classList.remove("visible"), 1800);
+        }}
+        function loadEvidenceLibrary() {{
+            try {{
+                const items = JSON.parse(localStorage.getItem("litdb.evidenceLibrary") || "[]");
+                return Array.isArray(items) ? items : [];
+            }} catch {{
+                return [];
+            }}
+        }}
+        function saveEvidenceLibrary(items) {{
+            localStorage.setItem("litdb.evidenceLibrary", JSON.stringify(items.slice(0, 60)));
+            updateLibraryCartCount();
+        }}
+        const libraryCart = document.createElement("a");
+        libraryCart.className = "article-library-cart";
+        libraryCart.href = "/?compose=article#article-compose-page";
+        libraryCart.title = labels.compose;
+        libraryCart.setAttribute("aria-label", labels.compose);
+        libraryCart.innerHTML = `
+            <span class="article-cart-icon" aria-hidden="true"></span>
+            <span class="article-cart-count">0</span>
+        `;
+        libraryCart.addEventListener("click", () => {{
+            sessionStorage.setItem("litdb.project", "aps-review");
+            sessionStorage.setItem("litdb.openArticleComposer", "1");
+        }});
+        document.body.appendChild(libraryCart);
+        const miniLibrary = document.createElement("aside");
+        miniLibrary.className = "article-mini-library";
+        document.body.appendChild(miniLibrary);
+        function escapeHtml(value) {{
+            const div = document.createElement("div");
+            div.textContent = value == null ? "" : String(value);
+            return div.innerHTML;
+        }}
+        function removeEvidenceItem(key) {{
+            const items = loadEvidenceLibrary().filter((item) => item.key !== key);
+            saveEvidenceLibrary(items);
+            const sentenceId = key.split(":").slice(1).join(":");
+            document.querySelector(`[data-sentence-id="${{CSS.escape(sentenceId)}}"]`)?.classList.remove("picked-sentence");
+            showArticleToast(labels.removed);
+        }}
+        function renderMiniLibrary(items) {{
+            const shown = items.slice(-5).reverse();
+            miniLibrary.innerHTML = `
+                <div class="article-mini-head">
+                    <div>
+                        <strong>${{escapeHtml(labels.library)}}</strong>
+                        <span>${{items.length}}</span>
+                    </div>
+                    <a href="/?compose=article#article-compose-page" class="article-mini-compose">${{escapeHtml(labels.compose)}}</a>
+                </div>
+                <div class="article-mini-list">
+                    ${{shown.length ? shown.map((item) => `
+                        <div class="article-mini-item">
+                            <p>${{escapeHtml(item.text || "")}}</p>
+                            <div>
+                                <span>PMID ${{escapeHtml(item.pmid || "")}}</span>
+                                <button type="button" data-key="${{escapeHtml(item.key || "")}}">${{escapeHtml(labels.remove)}}</button>
+                            </div>
+                        </div>
+                    `).join("") : `<p class="article-mini-empty">${{escapeHtml(labels.empty)}}</p>`}}
+                </div>
+            `;
+            miniLibrary.querySelector(".article-mini-compose")?.addEventListener("click", () => {{
+                sessionStorage.setItem("litdb.project", "aps-review");
+                sessionStorage.setItem("litdb.openArticleComposer", "1");
+            }});
+            miniLibrary.querySelectorAll("button[data-key]").forEach((button) => {{
+                button.addEventListener("click", () => removeEvidenceItem(button.dataset.key || ""));
+            }});
+        }}
+        function updateLibraryCartCount() {{
+            const items = loadEvidenceLibrary();
+            const count = items.length;
+            const countNode = libraryCart.querySelector(".article-cart-count");
+            if (countNode) countNode.textContent = String(count);
+            libraryCart.classList.toggle("has-items", count > 0);
+            renderMiniLibrary(items);
+        }}
+        updateLibraryCartCount();
+        window.addEventListener("storage", (event) => {{
+            if (event.key === "litdb.evidenceLibrary") updateLibraryCartCount();
+        }});
+        function articleMeta() {{
+            const source = document.querySelector(".article-sentence[data-pmid]");
+            return {{
+                pmid: source?.dataset.pmid || window.location.pathname.split("/").filter(Boolean).pop() || "",
+                title: source?.dataset.title || document.title,
+            }};
+        }}
+        function addEvidenceItem(item) {{
+            const items = loadEvidenceLibrary();
+            if (!items.some((existing) => existing.key === item.key)) {{
+                items.push(item);
+                saveEvidenceLibrary(items);
+            }}
+        }}
+        document.querySelectorAll(".article-sentence[data-sentence-id]").forEach((sentence) => {{
+            sentence.title = labels.add;
+            sentence.addEventListener("click", () => {{
+                const textValue = sentence.textContent.trim();
+                if (!textValue) return;
+                const key = `${{sentence.dataset.pmid}}:${{sentence.dataset.sentenceId}}`;
+                addEvidenceItem({{
+                    key,
+                    id: sentence.dataset.sentenceId,
+                    pmid: sentence.dataset.pmid,
+                    section: sentence.dataset.section || "",
+                    text: textValue,
+                    citation: sentence.dataset.title || document.title,
+                    url: sentence.dataset.url || window.location.pathname,
+                }});
+                sentence.classList.add("picked-sentence");
+                showArticleToast(labels.added);
+            }});
+        }});
+        const selectionButton = document.createElement("button");
+        selectionButton.type = "button";
+        selectionButton.className = "article-selection-popover";
+        selectionButton.textContent = labels.add;
+        document.body.appendChild(selectionButton);
+        let selectedEvidence = null;
+        function hideSelectionButton() {{
+            selectionButton.classList.remove("visible");
+            selectedEvidence = null;
+        }}
+        function selectedEvidenceFromRange() {{
+            const selection = window.getSelection();
+            if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+            const range = selection.getRangeAt(0);
+            const body = document.querySelector(".article-body");
+            if (!body || !body.contains(range.commonAncestorContainer)) return null;
+            const textValue = selection.toString().replace(/\\s+/g, " ").trim();
+            if (textValue.length < 12) return null;
+            const node = range.commonAncestorContainer.nodeType === 1
+                ? range.commonAncestorContainer
+                : range.commonAncestorContainer.parentElement;
+            const sentence = node?.closest?.(".article-sentence[data-sentence-id]");
+            const meta = articleMeta();
+            const keySeed = textValue.slice(0, 80).toLowerCase();
+            return {{
+                key: `${{meta.pmid}}:manual:${{keySeed}}`,
+                id: sentence?.dataset.sentenceId || `manual-${{Date.now()}}`,
+                pmid: sentence?.dataset.pmid || meta.pmid,
+                section: sentence?.dataset.section || "",
+                text: textValue,
+                citation: sentence?.dataset.title || meta.title,
+                url: sentence?.dataset.url || window.location.pathname,
+                manual: true,
+            }};
+        }}
+        document.addEventListener("mouseup", () => {{
+            window.setTimeout(() => {{
+                selectedEvidence = selectedEvidenceFromRange();
+                if (!selectedEvidence) {{
+                    hideSelectionButton();
+                    return;
+                }}
+                const range = window.getSelection().getRangeAt(0);
+                const rect = range.getBoundingClientRect();
+                selectionButton.style.left = `${{Math.min(rect.left + window.scrollX, window.innerWidth - 180)}}px`;
+                selectionButton.style.top = `${{rect.bottom + window.scrollY + 8}}px`;
+                selectionButton.classList.add("visible");
+            }}, 0);
+        }});
+        selectionButton.addEventListener("click", () => {{
+            if (!selectedEvidence) return;
+            addEvidenceItem(selectedEvidence);
+            showArticleToast(labels.added);
+            window.getSelection()?.removeAllRanges();
+            hideSelectionButton();
+        }});
+        window.addEventListener("scroll", hideSelectionButton, {{ passive: true }});
     </script>
 </body>
 </html>"""
@@ -740,11 +1061,25 @@ async def api_draft_paragraph(request: Request):
         logger.exception("Draft generation failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
+    draft = getattr(response, "content", str(response)).strip()
+    record = save_draft_record(
+        user=resolve_user_from_body(body),
+        draft_type="paragraph",
+        draft=draft,
+        evidence_count=len(clean_evidences),
+        paragraph_count=1,
+        prompt_meta={
+            "mode": mode,
+            "instruction": instruction,
+            "lang": str(body.get("lang", "en")),
+        },
+    )
     return {
         "mode": mode,
-        "draft": getattr(response, "content", str(response)).strip(),
+        "draft": draft,
         "llm": config,
         "evidence_count": len(clean_evidences),
+        "record": record,
     }
 
 
@@ -843,12 +1178,33 @@ async def api_draft_article(request: Request):
         logger.exception("Article draft generation failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
+    draft = getattr(response, "content", str(response)).strip()
+    record = save_draft_record(
+        user=resolve_user_from_body(body),
+        draft_type="article",
+        draft=draft,
+        evidence_count=total_evidence_count,
+        paragraph_count=len(clean_paragraphs),
+        prompt_meta={
+            "mode": mode,
+            "lang": str(body.get("lang", "en")),
+            "paragraphs": [
+                {
+                    "instruction": paragraph["instruction"],
+                    "length": paragraph["length"],
+                    "evidence_count": len(paragraph["evidences"]),
+                }
+                for paragraph in clean_paragraphs
+            ],
+        },
+    )
     return {
         "mode": mode,
-        "draft": getattr(response, "content", str(response)).strip(),
+        "draft": draft,
         "llm": config,
         "paragraph_count": len(clean_paragraphs),
         "evidence_count": total_evidence_count,
+        "record": record,
     }
 
 

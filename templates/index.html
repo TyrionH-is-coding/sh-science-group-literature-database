@@ -114,6 +114,17 @@
                     </div>
                 </section>
 
+                <section class="panel draft-history-panel">
+                    <div class="library-head">
+                        <div>
+                            <p class="panel-label" data-i18n="draftHistory">Draft history</p>
+                            <p class="library-hint" data-i18n="draftHistoryHint">LLM outputs are saved under your account.</p>
+                        </div>
+                        <span class="library-count" id="draft-history-count">0</span>
+                    </div>
+                    <div class="draft-history-list" id="draft-history-list"></div>
+                </section>
+
                 <section class="panel">
                     <p class="panel-label" data-i18n="uploadPdf">Upload PDF</p>
                     <form id="upload-form" class="upload-form">
@@ -140,6 +151,15 @@
                         </div>
                         <div class="header-search">
                             <input id="search-input" class="text-input" type="search" aria-label="Search literature" data-i18n-aria-label="searchLiterature" data-i18n-placeholder="searchPlaceholder" placeholder="Search PMID, title, journal, module">
+                        </div>
+                        <div class="pagination-controls" id="paper-pagination">
+                            <button class="secondary-button small-button" id="prev-page" type="button" data-i18n="previousPage">Previous</button>
+                            <label class="pagination-select-label">
+                                <span data-i18n="page">Page</span>
+                                <select id="page-select" class="page-select"></select>
+                            </label>
+                            <span class="pagination-total" id="page-total"></span>
+                            <button class="secondary-button small-button" id="next-page" type="button" data-i18n="nextPage">Next</button>
                         </div>
                         <span class="result-count" id="paper-count" data-i18n="loading">Loading</span>
                     </div>

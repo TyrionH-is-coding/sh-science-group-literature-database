@@ -2,11 +2,17 @@ const state = {
     papers: [],
     filteredPapers: [],
     selectedPmid: null,
+    moduleCounts: {},
+    paperPage: 1,
+    pageSize: 50,
     userName: localStorage.getItem("litdb.userName") || "",
+    userToken: localStorage.getItem("litdb.userToken") || "",
+    userId: localStorage.getItem("litdb.userId") || "",
     lang: localStorage.getItem("litdb.lang") || "en",
     project: sessionStorage.getItem("litdb.project") || "",
     evidenceByKey: {},
     evidenceLibrary: loadEvidenceLibrary(),
+    draftHistory: [],
 };
 
 const i18n = {
@@ -35,6 +41,10 @@ const i18n = {
         search: "Search",
         searchLiterature: "Search literature",
         searchPlaceholder: "Search PMID, title, journal, module",
+        page: "Page",
+        previousPage: "Previous",
+        nextPage: "Next",
+        pageOf: "of",
         priority: "Priority",
         allPriorities: "All priorities",
         priorityHigh: "High priority",
@@ -43,8 +53,16 @@ const i18n = {
         module: "Module",
         allModules: "All modules",
         evidenceLibrary: "Evidence Library",
-        evidenceLibraryHint: "Checked PaperQA sentences are saved here.",
+        evidenceLibraryHint: "Checked PaperQA sentences and article-page selections are saved here.",
         noEvidenceSaved: "No selected sentences yet.",
+        draftHistory: "Draft history",
+        draftHistoryHint: "LLM outputs are saved under your account.",
+        noDraftHistory: "No saved drafts yet.",
+        paragraphDraft: "Paragraph",
+        articleDraft: "Article",
+        evidenceCountShort: "evidence",
+        paragraphCountShort: "paragraphs",
+        loginFailed: "Could not sign in.",
         previewEvidenceLibrary: "Load sample sentences",
         loadingPreviewEvidence: "Loading sample sentences...",
         previewEvidenceLoaded: "Sample sentences added.",
@@ -169,6 +187,10 @@ const i18n = {
         search: "搜索",
         searchLiterature: "搜索文献",
         searchPlaceholder: "搜索 PMID、标题、期刊、模块",
+        page: "页",
+        previousPage: "上一页",
+        nextPage: "下一页",
+        pageOf: "共",
         priority: "优先度",
         allPriorities: "全部优先度",
         priorityHigh: "高优先度",
@@ -177,8 +199,16 @@ const i18n = {
         module: "模块",
         allModules: "全部模块",
         evidenceLibrary: "自选库",
-        evidenceLibraryHint: "勾选 PaperQA 句子后会保存到这里。",
+        evidenceLibraryHint: "勾选 PaperQA 句子，或在原文页点击句子后会保存到这里。",
         noEvidenceSaved: "还没有选择句子。",
+        draftHistory: "生成记录",
+        draftHistoryHint: "LLM 生成结果会保存在当前账号下。",
+        noDraftHistory: "还没有保存的生成记录。",
+        paragraphDraft: "段落",
+        articleDraft: "文章",
+        evidenceCountShort: "条证据",
+        paragraphCountShort: "段",
+        loginFailed: "无法登录。",
         previewEvidenceLibrary: "导入示例句子",
         loadingPreviewEvidence: "正在导入示例句子...",
         previewEvidenceLoaded: "示例句子已加入。",
@@ -281,14 +311,33 @@ const i18n = {
 };
 
 const MODULE_LABELS_ZH = {
+    module_1_clinical_introduction: "临床概述",
+    module_2_autoantigens: "自身抗原",
+    module_3_immunothrombosis: "免疫血栓",
+    module_4_microvascular: "微血管病变",
+    module_5_therapeutics: "治疗策略",
+    module_6_future_directions: "未来方向",
     module_1_criteria_and_classification: "分类与诊断标准",
     module_2_clinical_management: "临床管理",
-    module_3_immunothrombosis: "免疫血栓",
     module_4_obstetric_aps: "产科 APS",
     module_5_catastrophic_aps: "灾难性 APS",
     module_6_pediatric_aps: "儿童 APS",
     module_7_non_criteria_manifestations: "非标准临床表现",
     module_8_methods_and_biomarkers: "方法与生物标志物",
+};
+
+const MODULE_ALIAS_ZH = {
+    "clinical introduction": "临床概述",
+    "clinical overview": "临床概述",
+    "clinical introduction and overview": "临床概述",
+    autoantigens: "自身抗原",
+    autoantigen: "自身抗原",
+    immunothrombosis: "免疫血栓",
+    microvascular: "微血管病变",
+    "microvascular disease": "微血管病变",
+    therapeutics: "治疗策略",
+    therapeutic: "治疗策略",
+    "future directions": "未来方向",
 };
 
 const els = {
@@ -311,12 +360,19 @@ const els = {
     metricPapers: document.getElementById("metric-papers"),
     prioritySummary: document.getElementById("priority-summary"),
     searchInput: document.getElementById("search-input"),
+    paperPagination: document.getElementById("paper-pagination"),
+    prevPage: document.getElementById("prev-page"),
+    nextPage: document.getElementById("next-page"),
+    pageSelect: document.getElementById("page-select"),
+    pageTotal: document.getElementById("page-total"),
     priorityFilter: document.getElementById("priority-filter"),
     moduleFilter: document.getElementById("module-filter"),
     libraryCount: document.getElementById("library-count"),
     libraryList: document.getElementById("library-list"),
     clearLibrary: document.getElementById("clear-library"),
     composeButton: document.getElementById("compose-button"),
+    draftHistoryCount: document.getElementById("draft-history-count"),
+    draftHistoryList: document.getElementById("draft-history-list"),
     papersBody: document.getElementById("papers-body"),
     paperCount: document.getElementById("paper-count"),
     paperDetail: document.getElementById("paper-detail"),
@@ -341,17 +397,24 @@ document.addEventListener("DOMContentLoaded", () => {
     bindLanguage();
     bindTabs();
     bindFilters();
+    bindPagination();
     bindQuery();
     bindEvidenceLibrary();
     bindArticleComposer();
     bindUpload();
     applyLanguage();
     renderEvidenceLibrary();
+    renderDraftHistory();
+    applyInitialRoute();
     refreshUserState();
+    ensureUserSession();
+    openRequestedComposer();
     loadHealth();
     loadPapers();
     loadUploads();
     window.setInterval(loadHealth, 15000);
+    window.addEventListener("storage", handleStorageUpdate);
+    window.addEventListener("focus", handleFocusRefresh);
 });
 
 function t(key) {
@@ -359,13 +422,23 @@ function t(key) {
 }
 
 function bindLogin() {
-    els.loginForm.addEventListener("submit", (event) => {
+    els.loginForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const value = els.loginName.value.trim();
         if (!value) return;
-        state.userName = value;
-        localStorage.setItem("litdb.userName", value);
-        refreshUserState();
+        try {
+            const result = await fetchJson("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: value }),
+            });
+            applyUser(result.user || { name: value });
+            refreshUserState();
+            loadDraftHistory();
+            openRequestedComposer();
+        } catch (error) {
+            window.alert(`${t("loginFailed")} ${formatError(error.message)}`);
+        }
     });
 
     [els.userChip, els.projectUserChip].forEach((button) => button.addEventListener("click", switchUser));
@@ -379,11 +452,66 @@ function bindLogin() {
 
 function switchUser() {
     state.userName = "";
+    state.userToken = "";
+    state.userId = "";
     state.project = "";
+    state.draftHistory = [];
     localStorage.removeItem("litdb.userName");
+    localStorage.removeItem("litdb.userToken");
+    localStorage.removeItem("litdb.userId");
     sessionStorage.removeItem("litdb.project");
+    renderDraftHistory();
     refreshUserState();
     els.loginName.focus();
+}
+
+function applyUser(user) {
+    state.userName = (user.name || "").trim();
+    state.userToken = user.token || "";
+    state.userId = user.id || "";
+    localStorage.setItem("litdb.userName", state.userName);
+    if (state.userToken) localStorage.setItem("litdb.userToken", state.userToken);
+    if (state.userId) localStorage.setItem("litdb.userId", state.userId);
+}
+
+function routeWantsArticleComposer() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("compose") === "article"
+        || window.location.hash === "#article-compose-page"
+        || sessionStorage.getItem("litdb.openArticleComposer") === "1";
+}
+
+function applyInitialRoute() {
+    if (routeWantsArticleComposer()) {
+        state.project = "aps-review";
+        sessionStorage.setItem("litdb.project", state.project);
+    }
+}
+
+function openRequestedComposer() {
+    if (!routeWantsArticleComposer() || !state.userName) return;
+    state.evidenceLibrary = loadEvidenceLibrary();
+    state.project = "aps-review";
+    sessionStorage.setItem("litdb.project", state.project);
+    refreshUserState();
+    sessionStorage.removeItem("litdb.openArticleComposer");
+    window.history.replaceState(null, "", window.location.pathname);
+    window.setTimeout(() => openArticleComposer(true), 0);
+}
+
+async function ensureUserSession() {
+    if (!state.userName || state.userToken) return;
+    try {
+        const result = await fetchJson("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: state.userName }),
+        });
+        applyUser(result.user || { name: state.userName });
+        loadDraftHistory();
+    } catch {
+        // The workspace can still be browsed; draft history will resume after the next login.
+    }
 }
 
 function bindLanguage() {
@@ -418,6 +546,8 @@ function applyLanguage() {
         button.classList.toggle("active", button.dataset.lang === state.lang);
     });
     renderEvidenceLibrary();
+    renderDraftHistory();
+    populateModuleFilter(state.moduleCounts);
 }
 
 function refreshUserState() {
@@ -435,6 +565,7 @@ function refreshUserState() {
     els.projectUserChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
     els.signedUpload.textContent = state.userName ? `${t("signedInAs")}: ${state.userName}` : "";
     els.skipLink.href = inProject ? "#main-workspace" : "#project-main";
+    if (inProject) loadDraftHistory();
 }
 
 function bindTabs() {
@@ -459,6 +590,7 @@ function bindFilters() {
     [els.searchInput, els.priorityFilter, els.moduleFilter].forEach((input) => {
         const eventType = input === els.searchInput ? "input" : "change";
         input.addEventListener(eventType, () => {
+            state.paperPage = 1;
             if (input === els.searchInput) {
                 clearTimeout(searchTimeout);
                 searchTimeout = setTimeout(applyFilters, 300);
@@ -466,6 +598,24 @@ function bindFilters() {
                 applyFilters();
             }
         });
+    });
+}
+
+function bindPagination() {
+    els.prevPage.addEventListener("click", () => {
+        if (state.paperPage <= 1) return;
+        state.paperPage -= 1;
+        renderPapers();
+    });
+    els.nextPage.addEventListener("click", () => {
+        const totalPages = pageCount();
+        if (state.paperPage >= totalPages) return;
+        state.paperPage += 1;
+        renderPapers();
+    });
+    els.pageSelect.addEventListener("change", () => {
+        state.paperPage = Number(els.pageSelect.value || 1);
+        renderPapers();
     });
 }
 
@@ -493,6 +643,23 @@ function bindEvidenceLibrary() {
         renderEvidenceLibrary();
     });
     els.composeButton.addEventListener("click", openArticleComposer);
+}
+
+function handleStorageUpdate(event) {
+    if (event.key === "litdb.evidenceLibrary") {
+        state.evidenceLibrary = loadEvidenceLibrary();
+        syncEvidenceCards();
+        renderEvidenceLibrary();
+    }
+}
+
+function handleFocusRefresh() {
+    const latestLibrary = loadEvidenceLibrary();
+    if (JSON.stringify(latestLibrary) !== JSON.stringify(state.evidenceLibrary)) {
+        state.evidenceLibrary = latestLibrary;
+        syncEvidenceCards();
+        renderEvidenceLibrary();
+    }
 }
 
 function bindArticleComposer() {
@@ -537,7 +704,8 @@ async function loadPapers() {
     try {
         const data = await fetchJson("/api/papers");
         state.papers = data.papers || [];
-        populateModuleFilter(data.summary ? data.summary.module_counts : {});
+        state.moduleCounts = data.summary ? data.summary.module_counts : {};
+        populateModuleFilter(state.moduleCounts);
         applyFilters();
     } catch (error) {
         els.papersBody.innerHTML = `<tr><td colspan="3" class="error-text">${escapeHtml(t("couldNotLoadPapers"))}: ${escapeHtml(error.message)}</td></tr>`;
@@ -546,9 +714,13 @@ async function loadPapers() {
 
 function populateModuleFilter(moduleCounts) {
     const modules = Object.keys(moduleCounts || {}).filter((item) => item !== "missing").sort();
+    const selected = els.moduleFilter.value;
     els.moduleFilter.innerHTML = `<option value="">${escapeHtml(t("allModules"))}</option>` + modules
         .map((moduleName) => `<option value="${escapeHtml(moduleName)}">${escapeHtml(formatModuleLabel(moduleName))} (${moduleCounts[moduleName]})</option>`)
         .join("");
+    if (selected && modules.includes(selected)) {
+        els.moduleFilter.value = selected;
+    }
 }
 
 function applyFilters() {
@@ -573,17 +745,44 @@ function applyFilters() {
             && (!moduleName || String(paper.aps_modules).includes(moduleName));
     });
 
+    state.paperPage = Math.min(state.paperPage, pageCount());
     renderPapers();
 }
 
+function pageCount() {
+    return Math.max(1, Math.ceil(state.filteredPapers.length / state.pageSize));
+}
+
+function updatePagination(totalPages) {
+    if (!els.paperPagination) return;
+    els.paperPagination.classList.toggle("hidden", !state.filteredPapers.length);
+    els.prevPage.disabled = state.paperPage <= 1 || !state.filteredPapers.length;
+    els.nextPage.disabled = state.paperPage >= totalPages || !state.filteredPapers.length;
+    const options = Array.from({ length: totalPages }, (_, index) => {
+        const page = index + 1;
+        return `<option value="${page}" ${page === state.paperPage ? "selected" : ""}>${page}</option>`;
+    }).join("");
+    els.pageSelect.innerHTML = options;
+    els.pageSelect.value = String(state.paperPage);
+    els.pageTotal.textContent = `${t("pageOf")} ${totalPages}`;
+}
+
 function renderPapers() {
-    els.paperCount.textContent = `${state.filteredPapers.length} ${t("shown")}`;
+    const totalPages = pageCount();
+    state.paperPage = Math.min(Math.max(state.paperPage, 1), totalPages);
+    updatePagination(totalPages);
+    const start = (state.paperPage - 1) * state.pageSize;
+    const end = Math.min(start + state.pageSize, state.filteredPapers.length);
+    const pagePapers = state.filteredPapers.slice(start, end);
+    els.paperCount.textContent = state.filteredPapers.length
+        ? `${start + 1}-${end} / ${state.filteredPapers.length} ${t("shown")}`
+        : `0 ${t("shown")}`;
     if (!state.filteredPapers.length) {
         els.papersBody.innerHTML = `<tr><td colspan="3" class="empty-note">${escapeHtml(t("noPapers"))}</td></tr>`;
         return;
     }
 
-    els.papersBody.innerHTML = state.filteredPapers.map((paper) => `
+    els.papersBody.innerHTML = pagePapers.map((paper) => `
         <tr class="paper-row ${paper.pmid === state.selectedPmid ? "selected" : ""}" data-pmid="${escapeHtml(paper.pmid)}">
             <td>
                 <span class="paper-title">${escapeHtml(paper.title)}</span>
@@ -807,6 +1006,50 @@ function renderEvidenceLibrary() {
     });
 }
 
+async function loadDraftHistory() {
+    if (!els.draftHistoryList || !state.userToken) {
+        state.draftHistory = [];
+        renderDraftHistory();
+        return;
+    }
+    try {
+        const data = await fetchJson(`/api/drafts?user_token=${encodeURIComponent(state.userToken)}`);
+        state.draftHistory = Array.isArray(data.drafts) ? data.drafts : [];
+    } catch {
+        state.draftHistory = [];
+    }
+    renderDraftHistory();
+}
+
+function renderDraftHistory() {
+    if (!els.draftHistoryList || !els.draftHistoryCount) return;
+    els.draftHistoryCount.textContent = String(state.draftHistory.length);
+    if (!state.draftHistory.length) {
+        els.draftHistoryList.innerHTML = `<p class="empty-note compact-note">${escapeHtml(t("noDraftHistory"))}</p>`;
+        return;
+    }
+    els.draftHistoryList.innerHTML = state.draftHistory.slice(0, 8).map((item) => {
+        const typeLabel = item.type === "article" ? t("articleDraft") : t("paragraphDraft");
+        const paragraphCount = Number(item.paragraph_count || 0);
+        const evidenceCount = Number(item.evidence_count || 0);
+        const preview = String(item.draft || "").replace(/\s+/g, " ").slice(0, 180);
+        const meta = [
+            formatDate(item.created_at),
+            paragraphCount > 1 ? `${paragraphCount} ${t("paragraphCountShort")}` : "",
+            `${evidenceCount} ${t("evidenceCountShort")}`,
+        ].filter(Boolean).join(" · ");
+        return `
+            <div class="draft-history-item">
+                <div class="draft-history-head">
+                    <strong>${escapeHtml(typeLabel)}</strong>
+                    <span>${escapeHtml(meta)}</span>
+                </div>
+                <p>${escapeHtml(preview)}</p>
+            </div>
+        `;
+    }).join("");
+}
+
 async function seedEvidenceLibraryFromPaper() {
     const button = document.getElementById("preview-library");
     if (button) {
@@ -854,8 +1097,9 @@ function syncEvidenceCards() {
     });
 }
 
-function openArticleComposer() {
-    if (!state.evidenceLibrary.length) return;
+function openArticleComposer(force = false) {
+    state.evidenceLibrary = loadEvidenceLibrary();
+    if (!force && !state.evidenceLibrary.length) return;
     els.mainWorkspace.classList.add("hidden");
     els.articleComposePage.classList.remove("hidden");
     els.skipLink.href = "#article-compose-page";
@@ -977,9 +1221,16 @@ async function generateArticleDraft() {
         const result = await fetchJson("/api/draft/article", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "review", lang: state.lang, paragraphs }),
+            body: JSON.stringify({
+                mode: "review",
+                lang: state.lang,
+                paragraphs,
+                user_token: state.userToken,
+                user_name: state.userName,
+            }),
         });
         renderLlmInfo({ draft: result.llm });
+        loadDraftHistory();
         showArticleOutput(`
             <div class="answer-header">
                 <h3>${escapeHtml(t("generatedArticle"))}</h3>
@@ -1090,9 +1341,17 @@ async function generateDraftParagraph() {
         const result = await fetchJson("/api/draft/paragraph", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "review", lang: state.lang, instruction, evidences }),
+            body: JSON.stringify({
+                mode: "review",
+                lang: state.lang,
+                instruction,
+                evidences,
+                user_token: state.userToken,
+                user_name: state.userName,
+            }),
         });
         renderLlmInfo({ draft: result.llm });
+        loadDraftHistory();
         output.innerHTML = `
             <div class="answer-header">
                 <h3>${escapeHtml(t("generatedParagraph"))}</h3>
@@ -1250,6 +1509,12 @@ function formatModuleLabel(value) {
     if (!value) return t("missing");
     const raw = String(value).trim();
     if (state.lang === "zh" && MODULE_LABELS_ZH[raw]) return MODULE_LABELS_ZH[raw];
+    const normalized = raw
+        .replace(/^module[_-]?\d+[_-]?/i, "")
+        .replace(/[_-]+/g, " ")
+        .trim()
+        .toLowerCase();
+    if (state.lang === "zh" && MODULE_ALIAS_ZH[normalized]) return MODULE_ALIAS_ZH[normalized];
     return raw
         .replace(/^module[_-]?\d+[_-]?/i, "")
         .split(/[_-]+/)
