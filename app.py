@@ -530,6 +530,7 @@ def save_draft_record(
         "evidence_count": evidence_count,
         "paragraph_count": paragraph_count,
         "prompt_meta": prompt_meta or {},
+        "pinned": False,
         "created_at": datetime.now().isoformat(),
     }
     records.append(record)
@@ -636,7 +637,48 @@ async def api_drafts(request: Request):
         if item.get("user_id") == user.get("id")
     ]
     records.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    records.sort(key=lambda item: not bool(item.get("pinned")))
     return {"drafts": records[:100]}
+
+
+@app.patch("/api/drafts/{record_id}")
+async def api_update_draft(record_id: str, request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    user = find_user_by_token(str(body.get("user_token") or ""))
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+
+    records = load_json_list(DRAFT_HISTORY_FILE)
+    for item in records:
+        if item.get("id") == record_id and item.get("user_id") == user.get("id"):
+            pinned = bool(body.get("pinned"))
+            item["pinned"] = pinned
+            item["pinned_at"] = datetime.now().isoformat() if pinned else ""
+            save_json_list(DRAFT_HISTORY_FILE, records)
+            return {"ok": True, "draft": item}
+
+    raise HTTPException(status_code=404, detail="Draft record not found")
+
+
+@app.delete("/api/drafts/{record_id}")
+async def api_delete_draft(record_id: str, request: Request):
+    user = find_user_by_token(request.query_params.get("user_token"))
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+
+    records = load_json_list(DRAFT_HISTORY_FILE)
+    kept = [
+        item for item in records
+        if not (item.get("id") == record_id and item.get("user_id") == user.get("id"))
+    ]
+    if len(kept) == len(records):
+        raise HTTPException(status_code=404, detail="Draft record not found")
+    save_json_list(DRAFT_HISTORY_FILE, kept)
+    return {"ok": True}
 
 
 @app.get("/papers/{pmid}", response_class=HTMLResponse)

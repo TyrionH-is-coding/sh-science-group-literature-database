@@ -14,6 +14,16 @@
 
     <div class="login-screen" id="login-screen">
         <form class="login-card" id="login-form">
+            <div class="login-brand">
+                <span class="sh-logo" aria-hidden="true">
+                    <svg viewBox="0 0 80 80" role="img" focusable="false">
+                        <rect x="10" y="10" width="60" height="60" rx="18"></rect>
+                        <text x="40" y="50" text-anchor="middle">SH</text>
+                        <circle cx="61" cy="18" r="5"></circle>
+                    </svg>
+                </span>
+                <span class="brand-name">SH Science Group</span>
+            </div>
             <p class="eyebrow" data-i18n="loginEyebrow">Team workspace</p>
             <h1 data-i18n="loginTitle">Welcome back</h1>
             <p class="login-copy" data-i18n="loginCopy">Enter your name to access the research workspace.</p>
@@ -25,9 +35,18 @@
 
     <div class="project-screen hidden" id="project-screen">
         <header class="topbar">
-            <div>
-                <p class="eyebrow" data-i18n="projectEyebrow">Project hub</p>
-                <h1 data-i18n="projectTitle">Choose a dataset</h1>
+            <div class="brand-heading">
+                <span class="sh-logo" aria-hidden="true">
+                    <svg viewBox="0 0 80 80" role="img" focusable="false">
+                        <rect x="10" y="10" width="60" height="60" rx="18"></rect>
+                        <text x="40" y="50" text-anchor="middle">SH</text>
+                        <circle cx="61" cy="18" r="5"></circle>
+                    </svg>
+                </span>
+                <div>
+                    <p class="eyebrow" data-i18n="projectEyebrow">Project hub</p>
+                    <h1 data-i18n="projectTitle">Choose a dataset</h1>
+                </div>
             </div>
             <div class="top-actions">
                 <div class="language-toggle" role="group" aria-label="Language" data-i18n-aria-label="language">
@@ -49,9 +68,18 @@
 
     <div class="app-shell hidden" id="app-shell">
         <header class="topbar">
-            <div>
-                <p class="eyebrow" data-i18n="appEyebrow">APS Review Workspace</p>
-                <h1 data-i18n="appTitle">Literature Library</h1>
+            <div class="brand-heading">
+                <span class="sh-logo" aria-hidden="true">
+                    <svg viewBox="0 0 80 80" role="img" focusable="false">
+                        <rect x="10" y="10" width="60" height="60" rx="18"></rect>
+                        <text x="40" y="50" text-anchor="middle">SH</text>
+                        <circle cx="61" cy="18" r="5"></circle>
+                    </svg>
+                </span>
+                <div>
+                    <p class="eyebrow" data-i18n="appEyebrow">APS Review Workspace</p>
+                    <h1 data-i18n="appTitle">Literature Library</h1>
+                </div>
             </div>
             <div class="top-actions">
                 <div class="language-toggle" role="group" aria-label="Language" data-i18n-aria-label="language">
@@ -59,6 +87,10 @@
                     <button class="lang-button" type="button" data-lang="zh">中文</button>
                 </div>
                 <button class="user-chip" id="user-chip" type="button" title="Switch user" data-i18n-title="switchUser"></button>
+                <button class="history-chip" id="draft-history-chip" type="button">
+                    <span data-i18n="draftHistory">Draft history</span>
+                    <span class="history-count" id="draft-history-count">0</span>
+                </button>
                 <div class="status-strip" id="status-strip">
                     <span class="status-dot status-waiting"></span>
                     <span id="engine-status" data-i18n="checkingPaperQA">Checking PaperQA</span>
@@ -114,17 +146,6 @@
                     </div>
                 </section>
 
-                <section class="panel draft-history-panel">
-                    <div class="library-head">
-                        <div>
-                            <p class="panel-label" data-i18n="draftHistory">Draft history</p>
-                            <p class="library-hint" data-i18n="draftHistoryHint">LLM outputs are saved under your account.</p>
-                        </div>
-                        <span class="library-count" id="draft-history-count">0</span>
-                    </div>
-                    <div class="draft-history-list" id="draft-history-list"></div>
-                </section>
-
                 <section class="panel">
                     <p class="panel-label" data-i18n="uploadPdf">Upload PDF</p>
                     <form id="upload-form" class="upload-form">
@@ -142,6 +163,7 @@
                     <button class="tab-button active" data-view="papers" data-i18n="tabPapers">Papers</button>
                     <button class="tab-button" data-view="ask" data-i18n="tabAsk">Ask PaperQA</button>
                     <button class="tab-button" data-view="uploads" data-i18n="tabUploads">Uploads</button>
+                    <button class="tab-button" data-view="guide" data-i18n="tabGuide">Guide</button>
                 </nav>
 
                 <section id="view-papers" class="view active">
@@ -210,6 +232,56 @@
                     </div>
                     <div id="uploads-list" class="uploads-list"></div>
                 </section>
+
+                <section id="view-guide" class="view">
+                    <div class="section-header">
+                        <div>
+                            <p class="panel-label" data-i18n="guideEyebrow">How to use</p>
+                            <h2 data-i18n="guideTitle">Usage guide</h2>
+                        </div>
+                    </div>
+                    <div class="guide-content">
+                        <p class="guide-intro" data-i18n="guideIntro">This page documents the current workflow. Add new notes here whenever the site gains a feature.</p>
+                        <ol class="guide-steps">
+                            <li class="guide-step">
+                                <h3 data-i18n="guideStartTitle">1. Sign in and enter APS Review</h3>
+                                <p data-i18n="guideStartText">Enter your user name on the login screen, then choose APS Review. The name is used for uploads and saved LLM draft history.</p>
+                            </li>
+                            <li class="guide-step">
+                                <h3 data-i18n="guideLibraryTitle">2. Browse the literature library</h3>
+                                <p data-i18n="guideLibraryText">Use search, priority, module filters, and pagination to narrow the paper table. Each page shows 50 papers by default.</p>
+                            </li>
+                            <li class="guide-step">
+                                <h3 data-i18n="guidePaperTitle">3. Open and select from a paper</h3>
+                                <p data-i18n="guidePaperText">Open a paper from the detail panel. In the rendered article page, click a sentence or highlight text manually to add it to the Evidence Library.</p>
+                                <p data-i18n="guidePaperRemoveText">The small left-side Evidence Library panel on the article page shows selected sentences and lets you remove them immediately.</p>
+                            </li>
+                            <li class="guide-step">
+                                <h3 data-i18n="guidePaperQATitle">4. Ask PaperQA</h3>
+                                <p data-i18n="guidePaperQAText">Ask a focused APS question. When PaperQA is configured on the server, cited sentences can be checked and added to the Evidence Library.</p>
+                            </li>
+                            <li class="guide-step">
+                                <h3 data-i18n="guideComposerTitle">5. Compose an article draft</h3>
+                                <p data-i18n="guideComposerText">Click Compose from the Evidence Library, arrange selected sentences into paragraph plans, set approximate length, then generate a multi-paragraph draft.</p>
+                            </li>
+                            <li class="guide-step">
+                                <h3 data-i18n="guideRecordsTitle">6. Check draft history</h3>
+                                <p data-i18n="guideRecordsText">Generated paragraphs and article drafts are saved under the current user account after successful LLM generation.</p>
+                            </li>
+                            <li class="guide-step">
+                                <h3 data-i18n="guideUploadTitle">7. Upload PDFs</h3>
+                                <p data-i18n="guideUploadText">Use the upload panel for manual PDFs. A PMID is required, and the current user name is recorded with the upload.</p>
+                            </li>
+                        </ol>
+                        <section class="guide-updates">
+                            <h3 data-i18n="guideUpdatesTitle">Update notes</h3>
+                            <ul>
+                                <li data-i18n="guideUpdateLatest">May 2026: added simple accounts, saved draft history, article-page sentence selection, Evidence Library management, article composer routing, and 50-paper pagination.</li>
+                                <li data-i18n="guideUpdateNext">Future changes should be added here with a short date and user-facing summary.</li>
+                            </ul>
+                        </section>
+                    </div>
+                </section>
             </section>
 
             <aside class="detail-panel" id="detail-panel">
@@ -236,6 +308,23 @@
                 </div>
                 <div class="article-paragraphs" id="article-paragraphs"></div>
                 <div class="draft-output hidden" id="article-output"></div>
+            </section>
+        </main>
+
+        <main class="draft-history-page hidden" id="draft-history-page">
+            <section class="draft-history-shell">
+                <div class="compose-page-header">
+                    <div>
+                        <p class="panel-label" data-i18n="draftHistory">Draft history</p>
+                        <h2 data-i18n="draftHistoryTitle">Generated draft history</h2>
+                        <p class="compose-page-copy" data-i18n="draftHistoryPageHint">Review saved LLM outputs, pin useful records, and delete drafts you no longer need.</p>
+                    </div>
+                    <button class="secondary-button" id="back-from-history" type="button" data-i18n="backWorkspace">Back to workspace</button>
+                </div>
+                <div class="draft-history-toolbar">
+                    <span class="history-summary" id="draft-history-summary"></span>
+                </div>
+                <div class="draft-history-list draft-history-page-list" id="draft-history-list"></div>
             </section>
         </main>
     </div>

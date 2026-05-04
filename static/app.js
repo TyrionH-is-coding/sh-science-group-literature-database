@@ -30,7 +30,7 @@ const i18n = {
         apsDescription: "Systematic review corpus with PaperQA search, paper inspection, and PDF upload queue.",
         enterProject: "Enter project",
         appEyebrow: "APS Review Workspace",
-        appTitle: "Literature Library",
+        appTitle: "SH Science Group",
         checkingPaperQA: "Checking PaperQA",
         paperqaLLM: "PaperQA LLM",
         draftLLM: "Draft LLM",
@@ -58,6 +58,16 @@ const i18n = {
         draftHistory: "Draft history",
         draftHistoryHint: "LLM outputs are saved under your account.",
         noDraftHistory: "No saved drafts yet.",
+        draftHistoryTitle: "Generated draft history",
+        draftHistoryPageHint: "Review saved LLM outputs, pin useful records, and delete drafts you no longer need.",
+        draftHistorySummary: "records saved",
+        pinRecord: "Pin",
+        unpinRecord: "Unpin",
+        pinnedRecord: "Pinned",
+        deleteRecord: "Delete",
+        deleteDraftConfirm: "Delete this generated record?",
+        draftRecordDeleted: "Record deleted.",
+        draftRecordUpdated: "Record updated.",
         paragraphDraft: "Paragraph",
         articleDraft: "Article",
         evidenceCountShort: "evidence",
@@ -99,6 +109,28 @@ const i18n = {
         tabPapers: "Papers",
         tabAsk: "Ask PaperQA",
         tabUploads: "Uploads",
+        tabGuide: "Guide",
+        guideEyebrow: "How to use",
+        guideTitle: "Usage guide",
+        guideIntro: "This page documents the current workflow. Add new notes here whenever the site gains a feature.",
+        guideStartTitle: "1. Sign in and enter APS Review",
+        guideStartText: "Enter your user name on the login screen, then choose APS Review. The name is used for uploads and saved LLM draft history.",
+        guideLibraryTitle: "2. Browse the literature library",
+        guideLibraryText: "Use search, priority, module filters, and pagination to narrow the paper table. Each page shows 50 papers by default.",
+        guidePaperTitle: "3. Open and select from a paper",
+        guidePaperText: "Open a paper from the detail panel. In the rendered article page, click a sentence or highlight text manually to add it to the Evidence Library.",
+        guidePaperRemoveText: "The small left-side Evidence Library panel on the article page shows selected sentences and lets you remove them immediately.",
+        guidePaperQATitle: "4. Ask PaperQA",
+        guidePaperQAText: "Ask a focused APS question. When PaperQA is configured on the server, cited sentences can be checked and added to the Evidence Library.",
+        guideComposerTitle: "5. Compose an article draft",
+        guideComposerText: "Click Compose from the Evidence Library, arrange selected sentences into paragraph plans, set approximate length, then generate a multi-paragraph draft.",
+        guideRecordsTitle: "6. Check draft history",
+        guideRecordsText: "Generated paragraphs and article drafts are saved under the current user account after successful LLM generation.",
+        guideUploadTitle: "7. Upload PDFs",
+        guideUploadText: "Use the upload panel for manual PDFs. A PMID is required, and the current user name is recorded with the upload.",
+        guideUpdatesTitle: "Update notes",
+        guideUpdateLatest: "May 2026: added simple accounts, saved draft history, article-page sentence selection, Evidence Library management, article composer routing, and 50-paper pagination.",
+        guideUpdateNext: "Future changes should be added here with a short date and user-facing summary.",
         literatureTable: "Literature Table",
         reviewReadyPapers: "Literature Library",
         loading: "Loading",
@@ -176,10 +208,10 @@ const i18n = {
         apsDescription: "系统综述语料库，支持 PaperQA 检索、文献查看和 PDF 上传队列。",
         enterProject: "进入项目",
         appEyebrow: "APS 综述工作区",
-        appTitle: "文献库",
+        appTitle: "SH Science Group",
         checkingPaperQA: "正在检查 PaperQA",
         paperqaLLM: "PaperQA 模型",
-        draftLLM: "生成模型",
+        draftLLM: "生文模型",
         docsUnit: "篇索引文档",
         corpus: "文献库",
         papersMetric: "篇文献",
@@ -204,6 +236,16 @@ const i18n = {
         draftHistory: "生成记录",
         draftHistoryHint: "LLM 生成结果会保存在当前账号下。",
         noDraftHistory: "还没有保存的生成记录。",
+        draftHistoryTitle: "生成记录",
+        draftHistoryPageHint: "查看当前账号保存的 LLM 生成结果。可以置顶有用记录，也可以删除不需要的记录。",
+        draftHistorySummary: "条记录",
+        pinRecord: "置顶",
+        unpinRecord: "取消置顶",
+        pinnedRecord: "已置顶",
+        deleteRecord: "删除",
+        deleteDraftConfirm: "确定删除这条生成记录吗？",
+        draftRecordDeleted: "记录已删除。",
+        draftRecordUpdated: "记录已更新。",
         paragraphDraft: "段落",
         articleDraft: "文章",
         evidenceCountShort: "条证据",
@@ -245,6 +287,28 @@ const i18n = {
         tabPapers: "文献",
         tabAsk: "问 PaperQA",
         tabUploads: "上传记录",
+        tabGuide: "使用说明",
+        guideEyebrow: "使用说明",
+        guideTitle: "网站使用说明",
+        guideIntro: "这里记录当前网站的使用流程。之后每次增加新功能，就把说明和更新记录补在这里。",
+        guideStartTitle: "1. 登录并进入 APS Review",
+        guideStartText: "在登录页输入用户名，然后进入 APS Review。用户名会用于上传记录和 LLM 生成记录保存。",
+        guideLibraryTitle: "2. 浏览文献库",
+        guideLibraryText: "可以用搜索、优先度、模块筛选和分页来缩小文献表范围。文献表默认每页显示 50 篇。",
+        guidePaperTitle: "3. 打开原文并选择句子",
+        guidePaperText: "在右侧详情里打开原文。进入渲染后的文章页后，可以点击整句，或手动划选一段文字加入自选库。",
+        guidePaperRemoveText: "文章页左侧的小自选库面板会显示已选句子，也可以直接移除不需要的句子。",
+        guidePaperQATitle: "4. 向 PaperQA 提问",
+        guidePaperQAText: "输入具体的 APS 问题。服务器配置好 PaperQA 后，结果中的引用句子可以勾选并加入自选库。",
+        guideComposerTitle: "5. 生成文章草稿",
+        guideComposerText: "点击自选库里的“组文章”，把句子分配到不同段落，设置每段大约字数，再一次性生成多段文章草稿。",
+        guideRecordsTitle: "6. 查看生成记录",
+        guideRecordsText: "LLM 成功生成的段落和文章草稿，会保存到当前用户账号下，可以在左侧生成记录中查看。",
+        guideUploadTitle: "7. 上传 PDF",
+        guideUploadText: "上传面板用于人工补充 PDF。需要填写 PMID，系统会记录当前上传用户。",
+        guideUpdatesTitle: "更新记录",
+        guideUpdateLatest: "2026 年 5 月：加入轻量账号、生成记录、原文页选句、自选库管理、组文章跳转和 50 篇分页。",
+        guideUpdateNext: "以后每次新增功能，都在这里按日期补一条面向用户的说明。",
         literatureTable: "文献表",
         reviewReadyPapers: "文献库",
         loading: "加载中",
@@ -347,10 +411,12 @@ const els = {
     appShell: document.getElementById("app-shell"),
     mainWorkspace: document.getElementById("main-workspace"),
     articleComposePage: document.getElementById("article-compose-page"),
+    draftHistoryPage: document.getElementById("draft-history-page"),
     loginForm: document.getElementById("login-form"),
     loginName: document.getElementById("login-name"),
     userChip: document.getElementById("user-chip"),
     projectUserChip: document.getElementById("project-user-chip"),
+    draftHistoryChip: document.getElementById("draft-history-chip"),
     openApsProject: document.getElementById("open-aps-project"),
     signedUpload: document.getElementById("signed-upload"),
     engineStatus: document.getElementById("engine-status"),
@@ -372,6 +438,7 @@ const els = {
     clearLibrary: document.getElementById("clear-library"),
     composeButton: document.getElementById("compose-button"),
     draftHistoryCount: document.getElementById("draft-history-count"),
+    draftHistorySummary: document.getElementById("draft-history-summary"),
     draftHistoryList: document.getElementById("draft-history-list"),
     papersBody: document.getElementById("papers-body"),
     paperCount: document.getElementById("paper-count"),
@@ -386,6 +453,7 @@ const els = {
     uploadsList: document.getElementById("uploads-list"),
     refreshUploads: document.getElementById("refresh-uploads"),
     backToWorkspace: document.getElementById("back-to-workspace"),
+    backFromHistory: document.getElementById("back-from-history"),
     addParagraph: document.getElementById("add-paragraph"),
     generateArticle: document.getElementById("generate-article"),
     articleParagraphs: document.getElementById("article-paragraphs"),
@@ -401,6 +469,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bindQuery();
     bindEvidenceLibrary();
     bindArticleComposer();
+    bindDraftHistoryPage();
     bindUpload();
     applyLanguage();
     renderEvidenceLibrary();
@@ -558,11 +627,13 @@ function refreshUserState() {
     els.appShell.classList.toggle("hidden", !inProject);
     if (!inProject) {
         els.articleComposePage.classList.add("hidden");
+        els.draftHistoryPage.classList.add("hidden");
         els.mainWorkspace.classList.remove("hidden");
     }
     els.loginName.value = state.userName;
     els.userChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
     els.projectUserChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
+    els.draftHistoryChip.disabled = !state.userToken;
     els.signedUpload.textContent = state.userName ? `${t("signedInAs")}: ${state.userName}` : "";
     els.skipLink.href = inProject ? "#main-workspace" : "#project-main";
     if (inProject) loadDraftHistory();
@@ -666,6 +737,11 @@ function bindArticleComposer() {
     els.backToWorkspace.addEventListener("click", closeArticleComposer);
     els.addParagraph.addEventListener("click", () => addArticleParagraph());
     els.generateArticle.addEventListener("click", generateArticleDraft);
+}
+
+function bindDraftHistoryPage() {
+    els.draftHistoryChip.addEventListener("click", openDraftHistoryPage);
+    els.backFromHistory.addEventListener("click", closeDraftHistoryPage);
 }
 
 function bindUpload() {
@@ -1007,7 +1083,7 @@ function renderEvidenceLibrary() {
 }
 
 async function loadDraftHistory() {
-    if (!els.draftHistoryList || !state.userToken) {
+    if (!state.userToken) {
         state.draftHistory = [];
         renderDraftHistory();
         return;
@@ -1022,32 +1098,78 @@ async function loadDraftHistory() {
 }
 
 function renderDraftHistory() {
-    if (!els.draftHistoryList || !els.draftHistoryCount) return;
-    els.draftHistoryCount.textContent = String(state.draftHistory.length);
+    if (els.draftHistoryCount) {
+        els.draftHistoryCount.textContent = String(state.draftHistory.length);
+    }
+    if (els.draftHistorySummary) {
+        els.draftHistorySummary.textContent = `${state.draftHistory.length} ${t("draftHistorySummary")}`;
+    }
+    if (!els.draftHistoryList) return;
     if (!state.draftHistory.length) {
         els.draftHistoryList.innerHTML = `<p class="empty-note compact-note">${escapeHtml(t("noDraftHistory"))}</p>`;
         return;
     }
-    els.draftHistoryList.innerHTML = state.draftHistory.slice(0, 8).map((item) => {
+    els.draftHistoryList.innerHTML = state.draftHistory.map((item) => {
         const typeLabel = item.type === "article" ? t("articleDraft") : t("paragraphDraft");
         const paragraphCount = Number(item.paragraph_count || 0);
         const evidenceCount = Number(item.evidence_count || 0);
-        const preview = String(item.draft || "").replace(/\s+/g, " ").slice(0, 180);
+        const draftText = String(item.draft || "").trim();
         const meta = [
             formatDate(item.created_at),
             paragraphCount > 1 ? `${paragraphCount} ${t("paragraphCountShort")}` : "",
             `${evidenceCount} ${t("evidenceCountShort")}`,
         ].filter(Boolean).join(" · ");
+        const pinned = Boolean(item.pinned);
         return `
-            <div class="draft-history-item">
+            <article class="draft-history-item ${pinned ? "pinned" : ""}">
                 <div class="draft-history-head">
-                    <strong>${escapeHtml(typeLabel)}</strong>
-                    <span>${escapeHtml(meta)}</span>
+                    <div>
+                        <strong>${escapeHtml(typeLabel)}</strong>
+                        <span>${escapeHtml(meta)}</span>
+                    </div>
+                    <div class="draft-history-actions">
+                        ${pinned ? `<span class="pinned-badge">${escapeHtml(t("pinnedRecord"))}</span>` : ""}
+                        <button class="secondary-button small-button pin-draft" type="button" data-id="${escapeHtml(item.id)}" data-pinned="${pinned ? "true" : "false"}">${escapeHtml(pinned ? t("unpinRecord") : t("pinRecord"))}</button>
+                        <button class="text-button danger-text-button delete-draft" type="button" data-id="${escapeHtml(item.id)}">${escapeHtml(t("deleteRecord"))}</button>
+                    </div>
                 </div>
-                <p>${escapeHtml(preview)}</p>
-            </div>
+                <p>${escapeHtml(draftText)}</p>
+            </article>
         `;
     }).join("");
+    document.querySelectorAll(".pin-draft").forEach((button) => {
+        button.addEventListener("click", () => updateDraftPin(button.dataset.id, button.dataset.pinned !== "true"));
+    });
+    document.querySelectorAll(".delete-draft").forEach((button) => {
+        button.addEventListener("click", () => deleteDraftRecord(button.dataset.id));
+    });
+}
+
+async function updateDraftPin(recordId, pinned) {
+    if (!recordId || !state.userToken) return;
+    try {
+        await fetchJson(`/api/drafts/${encodeURIComponent(recordId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_token: state.userToken, pinned }),
+        });
+        await loadDraftHistory();
+    } catch (error) {
+        window.alert(`${t("updateFailed")}: ${formatError(error.message)}`);
+    }
+}
+
+async function deleteDraftRecord(recordId) {
+    if (!recordId || !state.userToken) return;
+    if (!window.confirm(t("deleteDraftConfirm"))) return;
+    try {
+        await fetchJson(`/api/drafts/${encodeURIComponent(recordId)}?user_token=${encodeURIComponent(state.userToken)}`, {
+            method: "DELETE",
+        });
+        await loadDraftHistory();
+    } catch (error) {
+        window.alert(`${t("deleteFailed")}: ${formatError(error.message)}`);
+    }
 }
 
 async function seedEvidenceLibraryFromPaper() {
@@ -1101,6 +1223,7 @@ function openArticleComposer(force = false) {
     state.evidenceLibrary = loadEvidenceLibrary();
     if (!force && !state.evidenceLibrary.length) return;
     els.mainWorkspace.classList.add("hidden");
+    els.draftHistoryPage.classList.add("hidden");
     els.articleComposePage.classList.remove("hidden");
     els.skipLink.href = "#article-compose-page";
     els.articleOutput.classList.add("hidden");
@@ -1116,6 +1239,22 @@ function openArticleComposer(force = false) {
 
 function closeArticleComposer() {
     els.articleComposePage.classList.add("hidden");
+    els.mainWorkspace.classList.remove("hidden");
+    els.skipLink.href = "#main-workspace";
+}
+
+function openDraftHistoryPage() {
+    if (!state.userToken) return;
+    els.mainWorkspace.classList.add("hidden");
+    els.articleComposePage.classList.add("hidden");
+    els.draftHistoryPage.classList.remove("hidden");
+    els.skipLink.href = "#draft-history-page";
+    loadDraftHistory();
+    els.draftHistoryPage.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeDraftHistoryPage() {
+    els.draftHistoryPage.classList.add("hidden");
     els.mainWorkspace.classList.remove("hidden");
     els.skipLink.href = "#main-workspace";
 }
