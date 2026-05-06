@@ -68,6 +68,26 @@ async def _load_all(api_key: str, corpus_dir: Path) -> Any:
     return docs
 
 
+async def _build_docs_from_files(api_key: str, file_paths: list[Path]) -> Any:
+    """Build a transient PaperQA Docs object from uploaded files."""
+    from langchain_deepseek import ChatDeepSeek
+    from paperqa import Docs
+
+    config = get_llm_config()
+    llm = ChatDeepSeek(
+        model=config["model"],
+        api_key=api_key,
+        temperature=config["temperature"],
+    )
+    docs = Docs(llm="langchain", embedding="sparse", client=llm)
+    for path in file_paths:
+        try:
+            await docs.aadd(str(path), docname=path.stem)
+        except Exception as exc:
+            logger.warning("PaperQA: skip uploaded file %s - %s", path.name, exc)
+    return docs
+
+
 def init_engine_sync(api_key: str | None = None, corpus_dir: str | Path | None = None) -> Any:
     """Synchronous wrapper to load all docs."""
     import asyncio
@@ -127,6 +147,55 @@ async def query(question: str, k: int = 10, max_sources: int = 5) -> dict[str, A
         "answer": result.formatted_answer,
         "contexts": contexts,
         "llm": get_llm_config(),
+    }
+
+
+async def query_files(
+    *,
+    question: str,
+    file_paths: list[str | Path],
+    k: int = 10,
+    max_sources: int = 5,
+) -> dict[str, Any]:
+    api_key = get_api_key()
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY not configured")
+
+    paths = [Path(path).resolve() for path in file_paths if Path(path).exists()]
+    if not paths:
+        raise RuntimeError("No PDF files are available in this workspace")
+
+    docs = await _build_docs_from_files(api_key, paths)
+    if not getattr(docs, "docs", None):
+        raise RuntimeError("PaperQA could not parse any uploaded PDF files")
+
+    result = await docs.aquery(query=question, k=k, max_sources=max_sources)
+    contexts = []
+    path_by_stem = {path.stem: path for path in paths}
+    for index, context in enumerate(result.contexts, start=1):
+        text_obj = context.text
+        source_name = getattr(text_obj, "name", "") or f"source_{index}"
+        source_stem = str(source_name).split()[0]
+        path = path_by_stem.get(source_stem)
+        contexts.append(
+            {
+                "name": source_name,
+                "doc_id": source_stem,
+                "pmid": "",
+                "url": "",
+                "pdf_url": "",
+                "text": getattr(text_obj, "text", "")[:1200],
+                "citation": getattr(getattr(text_obj, "doc", None), "citation", "") or source_name,
+                "filename": path.name if path else "",
+            }
+        )
+    return {
+        "question": question,
+        "answer": result.formatted_answer,
+        "contexts": contexts,
+        "llm": get_llm_config(),
+        "docs_count": len(docs.docs),
+        "texts_count": len(getattr(docs, "texts", [])),
     }
 
 

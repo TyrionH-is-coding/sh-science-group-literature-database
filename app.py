@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import os
 import re
 import html
+import shutil
 import uuid
 from functools import lru_cache
 from datetime import datetime
@@ -16,7 +19,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -31,11 +34,14 @@ UPLOAD_METADATA_FILE = Path(
 ).resolve()
 USER_METADATA_FILE = Path(os.environ.get("LITDB_USERS_FILE", UPLOAD_DIR / "users.json")).resolve()
 DRAFT_HISTORY_FILE = Path(os.environ.get("LITDB_DRAFT_HISTORY_FILE", UPLOAD_DIR / "draft_history.json")).resolve()
+WORKSPACE_METADATA_FILE = Path(os.environ.get("LITDB_WORKSPACES_FILE", UPLOAD_DIR / "workspaces.json")).resolve()
+WORKSPACE_UPLOAD_ROOT = Path(os.environ.get("LITDB_WORKSPACE_UPLOAD_ROOT", UPLOAD_DIR / "workspaces")).resolve()
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8081"))
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+WORKSPACE_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -58,6 +64,78 @@ _engine_error: str | None = None
 
 SENTENCE_RE = re.compile(r"[^.!?。！？;；]+(?:[.!?。！？;；]+|$)", re.MULTILINE)
 SOURCE_LINE_RE = re.compile(r"(?:line|lines)\s+(\d+)(?:\s*[-–]\s*(\d+))?", re.IGNORECASE)
+DISPLAY_LINE_REF_RE = re.compile(
+    r"\s*[\[【(（]\s*(?:line|lines|行)\s*\d+(?:\s*[-–—~至到]\s*\d+)?\s*[\]】)）]",
+    re.IGNORECASE,
+)
+ANSWER_CITATION_GROUP_RE = re.compile(
+    r"\((?=[^)]*pmid[_:\s-]*\d+)(?=[^)]*(?:line|lines))([^)]*)\)",
+    re.IGNORECASE,
+)
+ANSWER_CITATION_ITEM_RE = re.compile(
+    r"pmid[_:\s-]*(\d+)\s*(?:line|lines)\s*(\d+)(?:\s*[-–—]\s*(\d+))?",
+    re.IGNORECASE,
+)
+
+
+def clean_citation_key(value: str) -> str:
+    key = str(value or "").strip().lstrip("@").strip("[]")
+    key = re.sub(r"\s+", "_", key)
+    key = re.sub(r"[\[\];,]+", "", key)
+    return key[:160]
+
+
+def author_year_citekey(authors: str, year: str, title: str = "") -> str:
+    first_author = str(authors or "").split(";")[0].strip()
+    author_token = re.sub(r"[^A-Za-z0-9]+", "", first_author.split(" ")[0] if first_author else "")
+    year_token = re.sub(r"\D", "", str(year or ""))[:4]
+    if author_token and year_token:
+        return f"{author_token}{year_token}"
+    title_token = re.sub(r"[^A-Za-z0-9]+", "", str(title or "").split(" ")[0] if title else "")
+    return f"{title_token or 'source'}{year_token or 'nd'}"
+
+
+def citation_key_for_metadata(metadata: dict[str, Any]) -> str:
+    for field in ("citekey", "cite_key", "citation_key", "custom_citekey"):
+        key = clean_citation_key(str(metadata.get(field, "")))
+        if key:
+            return key
+    pmid = re.sub(r"\D", "", str(metadata.get("pmid", "")))
+    if pmid:
+        return f"pmid:{pmid}"
+    doi = clean_citation_key(str(metadata.get("doi", "")))
+    if doi:
+        return f"doi:{doi}"
+    return clean_citation_key(author_year_citekey(
+        str(metadata.get("authors", "")),
+        str(metadata.get("year", "")),
+        str(metadata.get("title", "")),
+    ))
+
+
+def citation_key_for_evidence(item: dict[str, Any]) -> str:
+    key = clean_citation_key(str(item.get("citekey", "")))
+    if key:
+        return key
+    pmid = re.sub(r"\D", "", str(item.get("pmid", "")))
+    if pmid:
+        return f"pmid:{pmid}"
+    doi = clean_citation_key(str(item.get("doi", "")))
+    if doi:
+        return f"doi:{doi}"
+    doc_id = clean_citation_key(str(item.get("doc_id", "")))
+    if doc_id:
+        return f"doc:{doc_id}"
+    source_name = clean_citation_key(author_year_citekey(
+        str(item.get("source_name") or item.get("citation") or ""),
+        str(item.get("year", "")),
+        str(item.get("title", "")),
+    ))
+    return f"source:{source_name or 'uploaded'}"
+
+
+def pandoc_citation(key: str) -> str:
+    return f"[@{clean_citation_key(key)}]"
 
 
 def get_api_key() -> str | None:
@@ -114,10 +192,12 @@ def load_papers() -> list[dict[str, Any]]:
         pmid = metadata.get("pmid") or path.stem.replace("pmid_", "")
         title = metadata.get("title") or first_heading(body) or path.stem
         abstract = extract_section(body, "Abstract", max_chars=900)
+        citation_metadata = {**metadata, "pmid": pmid, "title": title}
         papers.append(
             {
                 "pmid": pmid,
                 "paper_id": metadata.get("paper_id", f"pmid:{pmid}"),
+                "citekey": citation_key_for_metadata(citation_metadata),
                 "title": title,
                 "authors": metadata.get("authors", ""),
                 "year": metadata.get("year", ""),
@@ -182,6 +262,13 @@ def strip_markdown_inline(value: str) -> str:
     cleaned = re.sub(r"[*_`]+", "", cleaned)
     cleaned = re.sub(r"<[^>]+>", "", cleaned)
     return cleaned.strip()
+
+
+def strip_display_line_references(value: str) -> str:
+    cleaned = DISPLAY_LINE_REF_RE.sub("", value or "")
+    cleaned = re.sub(r"\s+(?:line|lines)\s+\d+(?:\s*[-–—]\s*\d+)?", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+([,.;:!?，。；：！？])", r"\1", cleaned)
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
 
 def display_module_label(value: str) -> str:
@@ -254,6 +341,7 @@ def iter_text_blocks(body: str) -> list[dict[str, Any]]:
 @lru_cache(maxsize=512)
 def evidence_index_for_pmid(pmid: str) -> tuple[dict[str, Any], ...]:
     detail = get_paper_by_pmid(pmid)
+    citekey = citation_key_for_metadata({**detail["metadata"], "pmid": pmid})
     sentences: list[dict[str, Any]] = []
     for block in iter_text_blocks(detail["body"]):
         if block["type"] != "paragraph":
@@ -272,6 +360,9 @@ def evidence_index_for_pmid(pmid: str) -> tuple[dict[str, Any], ...]:
                     "line_start": block["line_start"],
                     "line_end": block["line_end"],
                     "pmid": re.sub(r"\D", "", pmid),
+                    "doi": detail["metadata"].get("doi", ""),
+                    "title": detail["metadata"].get("title", ""),
+                    "citekey": citekey,
                 }
             )
     return tuple(sentences)
@@ -349,6 +440,179 @@ def enrich_contexts_with_evidence(contexts: list[dict[str, Any]]) -> list[dict[s
     return enriched
 
 
+def match_workspace_document(workspace: dict[str, Any], source: dict[str, Any]) -> dict[str, Any] | None:
+    docs = workspace.get("documents") or []
+    haystack = " ".join(
+        str(source.get(key, ""))
+        for key in ("name", "citation", "filename", "doc_id")
+    ).lower()
+    for document in docs:
+        filename = str(document.get("filename", ""))
+        original = str(document.get("original_filename", ""))
+        stem = Path(filename).stem.lower()
+        original_stem = Path(original).stem.lower()
+        if stem and stem in haystack:
+            return document
+        if original_stem and original_stem in haystack:
+            return document
+    return docs[0] if len(docs) == 1 else None
+
+
+def enrich_workspace_contexts(workspace: dict[str, Any], contexts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched = []
+    for source_index, source in enumerate(contexts, start=1):
+        item = dict(source)
+        document = match_workspace_document(workspace, item)
+        if document:
+            public_doc = public_workspace_document(workspace, document)
+            item["doc_id"] = public_doc["id"]
+            item["pdf_url"] = public_doc["pdf_url"]
+            item["url"] = public_doc["pdf_url"]
+            item["citation"] = item.get("citation") or public_doc["original_filename"]
+        context_text = strip_markdown_inline(str(item.get("text", ""))).strip()
+        sentences = [sentence for sentence in split_sentences(context_text) if len(sentence) >= 20]
+        if not sentences and context_text:
+            sentences = [context_text[:900]]
+        evidences = []
+        for sentence_index, sentence in enumerate(sentences[:5], start=1):
+            evidence_id = f"w{source_index}-{sentence_index}"
+            evidences.append(
+                {
+                    "id": evidence_id,
+                    "text": sentence,
+                    "section": "PDF excerpt",
+                    "pmid": public_doc.get("pmid", "") if document else "",
+                    "citekey": public_doc.get("citekey", "") if document else citation_key_for_evidence(item),
+                    "doc_id": item.get("doc_id") or f"source-{source_index}",
+                    "source_name": item.get("citation") or item.get("name") or "",
+                    "url": item.get("pdf_url") or item.get("url") or "",
+                }
+            )
+        item["evidence"] = evidences
+        enriched.append(item)
+    return enriched
+
+
+def answer_citation_url(pmid: str, line_start: int, line_end: int) -> str:
+    safe_pmid = re.sub(r"\D", "", pmid)
+    if not safe_pmid:
+        return ""
+    start = max(1, line_start)
+    end = max(start, line_end)
+    try:
+        sentences = list(evidence_index_for_pmid(safe_pmid))
+    except HTTPException:
+        return f"/papers/{safe_pmid}"
+    matches = [
+        sentence
+        for sentence in sentences
+        if sentence["line_start"] <= end and sentence["line_end"] >= start
+    ]
+    if not matches and sentences:
+        matches = sorted(sentences, key=lambda item: abs(item["line_start"] - start))[:1]
+    if not matches:
+        return f"/papers/{safe_pmid}"
+    highlight_ids = ",".join(sentence["id"] for sentence in matches[:8])
+    return f"/papers/{safe_pmid}?highlight={highlight_ids}#{matches[0]['id']}"
+
+
+def parse_answer_citation_segments(answer: str) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+    last_index = 0
+    for group_match in ANSWER_CITATION_GROUP_RE.finditer(answer or ""):
+        citations = []
+        for item_match in ANSWER_CITATION_ITEM_RE.finditer(group_match.group(1)):
+            pmid = item_match.group(1)
+            line_start = int(item_match.group(2))
+            line_end = int(item_match.group(3) or line_start)
+            citations.append(
+                {
+                    "pmid": pmid,
+                    "label": f"PMID {pmid}",
+                    "url": answer_citation_url(pmid, line_start, line_end),
+                }
+            )
+        if not citations:
+            continue
+        if group_match.start() > last_index:
+            segments.append({"type": "text", "text": answer[last_index : group_match.start()]})
+        segments.append({"type": "citations", "citations": citations})
+        last_index = group_match.end()
+    if last_index < len(answer or ""):
+        segments.append({"type": "text", "text": (answer or "")[last_index:]})
+    if not segments:
+        return [{"type": "text", "text": strip_display_line_references(answer or "")}]
+    return segments
+
+
+def answer_segments_to_text(segments: list[dict[str, Any]]) -> str:
+    parts = []
+    for segment in segments:
+        if segment.get("type") == "citations":
+            labels = [citation.get("label", "") for citation in segment.get("citations", [])]
+            parts.append(f" ({'; '.join(label for label in labels if label)})")
+        else:
+            parts.append(str(segment.get("text", "")))
+    return re.sub(r"[ \t]{2,}", " ", "".join(parts)).strip()
+
+
+def evidence_source_label(item: dict[str, Any]) -> str:
+    pmid = str(item.get("pmid", "")).strip()
+    if pmid:
+        return f"PMID {pmid}"
+    source_name = str(item.get("source_name") or item.get("citation") or item.get("doc_id") or "uploaded PDF").strip()
+    return source_name[:140]
+
+
+def draft_evidence_reference(item: dict[str, Any]) -> dict[str, Any]:
+    pmid = re.sub(r"\D", "", str(item.get("pmid", "")))
+    metadata: dict[str, Any] = {}
+    if pmid:
+        try:
+            paper = get_paper_by_pmid(pmid)
+            metadata = paper.get("metadata", {})
+        except HTTPException:
+            metadata = {}
+    citekey = citation_key_for_evidence({
+        **metadata,
+        **item,
+        "pmid": pmid or item.get("pmid", ""),
+    })
+    return {
+        "citekey": citekey,
+        "citation": pandoc_citation(citekey),
+        "pmid": pmid,
+        "doi": metadata.get("doi") or item.get("doi", ""),
+        "title": metadata.get("title") or item.get("title") or item.get("citation") or item.get("source_name", ""),
+        "authors": metadata.get("authors") or item.get("authors", ""),
+        "year": metadata.get("year") or item.get("year", ""),
+        "journal": metadata.get("journal") or item.get("journal", ""),
+    }
+
+
+def normalize_draft_citations(draft: str, allowed_keys: set[str]) -> str:
+    cleaned = draft or ""
+    for key in allowed_keys:
+        if key.startswith("pmid:"):
+            pmid = re.escape(key.split(":", 1)[1])
+            cleaned = re.sub(rf"\bPMID\s*{pmid}\b", pandoc_citation(key), cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\[(\d{1,3}(?:\s*[,;-]\s*\d{1,3})*)\]", "", cleaned)
+    cleaned = re.sub(r"\s+([,.;:!?，。；：！？])", r"\1", cleaned)
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
+def unique_reference_rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    seen = set()
+    for item in items:
+        citekey = item.get("citekey")
+        if not citekey or citekey in seen:
+            continue
+        seen.add(citekey)
+        rows.append({key: item.get(key, "") for key in ("citekey", "citation", "pmid", "doi", "title", "authors", "year", "journal")})
+    return rows
+
+
 def markdown_inline_html(
     text: str,
     highlight_ids: set[str],
@@ -369,11 +633,13 @@ def markdown_inline_html(
         if sentence_id:
             meta = sentence_meta.get(sentence_id, {})
             section = html.escape(str(meta.get("section", "")))
+            citekey = html.escape(str(meta.get("citekey") or citation_key_for_evidence({"pmid": pmid})))
             url = f"/papers/{pmid}?highlight={sentence_id}#{sentence_id}"
             parts.append(
                 f'<span class="{classes}" id="{html.escape(sentence_id)}" '
                 f'data-sentence-id="{html.escape(sentence_id)}" '
                 f'data-pmid="{html.escape(pmid)}" '
+                f'data-citekey="{citekey}" '
                 f'data-section="{section}" '
                 f'data-title="{html.escape(title)}" '
                 f'data-url="{html.escape(url)}">{safe}</span>'
@@ -435,12 +701,14 @@ def get_paper_by_pmid(pmid: str) -> dict[str, Any]:
 
     text = path.read_text(encoding="utf-8", errors="replace")
     metadata, body = parse_frontmatter(text)
+    metadata["citekey"] = citation_key_for_metadata({**metadata, "pmid": safe_pmid})
     return {
         "metadata": metadata,
         "body_preview": body[:8000],
         "body": body,
         "filename": path.name,
         "bytes": path.stat().st_size,
+        "pdf_upload": public_pdf_upload(latest_pdf_uploads_by_pmid().get(safe_pmid)),
     }
 
 
@@ -468,6 +736,60 @@ def save_uploads_metadata(metadata: list[dict[str, Any]]) -> None:
     )
 
 
+def upload_file_path(item: dict[str, Any]) -> Path | None:
+    filename = str(item.get("filename") or "")
+    if not filename:
+        return None
+    path = (UPLOAD_DIR / filename).resolve()
+    try:
+        path.relative_to(UPLOAD_DIR)
+    except ValueError:
+        return None
+    if path.exists() and path.suffix.lower() == ".pdf":
+        return path
+    return None
+
+
+def public_pdf_upload(item: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not item or upload_file_path(item) is None:
+        return None
+    upload_id = int(item.get("id", 0) or 0)
+    if not upload_id:
+        return None
+    return {
+        "available": True,
+        "id": upload_id,
+        "url": f"/api/uploads/{upload_id}/file",
+        "filename": item.get("filename", ""),
+        "original_filename": item.get("original_filename", ""),
+        "uploaded_at": item.get("uploaded_at", ""),
+        "uploader_name": item.get("uploader_name", ""),
+        "status": item.get("status", "uploaded"),
+    }
+
+
+def latest_pdf_uploads_by_pmid() -> dict[str, dict[str, Any]]:
+    uploads = sorted(
+        load_uploads_metadata(),
+        key=lambda item: (str(item.get("uploaded_at", "")), int(item.get("id", 0) or 0)),
+        reverse=True,
+    )
+    by_pmid: dict[str, dict[str, Any]] = {}
+    for item in uploads:
+        pmid = re.sub(r"\D", "", str(item.get("pmid", "")))
+        if not pmid or pmid in by_pmid or upload_file_path(item) is None:
+            continue
+        by_pmid[pmid] = item
+    return by_pmid
+
+
+def paper_with_pdf_upload(paper: dict[str, Any], pdf_uploads: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    row = dict(paper)
+    pmid = re.sub(r"\D", "", str(row.get("pmid", "")))
+    row["pdf_upload"] = public_pdf_upload(pdf_uploads.get(pmid))
+    return row
+
+
 def load_json_list(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -481,6 +803,110 @@ def load_json_list(path: Path) -> list[dict[str, Any]]:
 
 def save_json_list(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def slugify_workspace_name(name: str) -> str:
+    clean = re.sub(r"\s+", " ", str(name or "")).strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="Workspace name is required")
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", clean).strip("-._").lower()
+    return (slug or "workspace")[:48]
+
+
+def load_workspaces() -> list[dict[str, Any]]:
+    return load_json_list(WORKSPACE_METADATA_FILE)
+
+
+def save_workspaces(workspaces: list[dict[str, Any]]) -> None:
+    save_json_list(WORKSPACE_METADATA_FILE, workspaces)
+
+
+def workspace_dir(workspace_id: str) -> Path:
+    safe_id = re.sub(r"[^A-Za-z0-9._-]+", "", workspace_id or "")
+    if not safe_id:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    path = (WORKSPACE_UPLOAD_ROOT / safe_id).resolve()
+    try:
+        path.relative_to(WORKSPACE_UPLOAD_ROOT)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workspace path")
+    return path
+
+
+def find_workspace(workspace_id: str) -> dict[str, Any]:
+    for workspace in load_workspaces():
+        if workspace.get("id") == workspace_id:
+            return workspace
+    raise HTTPException(status_code=404, detail="Workspace not found")
+
+
+def public_workspace(workspace: dict[str, Any]) -> dict[str, Any]:
+    docs = workspace.get("documents") or []
+    library_type = str(workspace.get("library_type") or workspace.get("type") or "personal")
+    return {
+        "id": workspace.get("id", ""),
+        "name": workspace.get("name", ""),
+        "description": workspace.get("description", ""),
+        "library_type": library_type,
+        "owner_user_id": workspace.get("owner_user_id", ""),
+        "owner_name": workspace.get("owner_name") or workspace.get("created_by", ""),
+        "created_by": workspace.get("created_by", ""),
+        "created_at": workspace.get("created_at", ""),
+        "updated_at": workspace.get("updated_at", ""),
+        "document_count": len(docs),
+        "requires_pmid": library_type == "team",
+        "can_owner_delete": library_type == "personal",
+    }
+
+
+def safe_workspace_upload_name(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    base = Path(filename).stem
+    safe_base = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._") or "paper"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{timestamp}_{safe_base}{suffix}"
+
+
+def workspace_document_path(workspace: dict[str, Any], document: dict[str, Any]) -> Path | None:
+    filename = str(document.get("filename") or "")
+    if not filename:
+        return None
+    path = (workspace_dir(str(workspace.get("id", ""))) / "pdfs" / filename).resolve()
+    try:
+        path.relative_to(workspace_dir(str(workspace.get("id", ""))))
+    except ValueError:
+        return None
+    return path if path.exists() and path.suffix.lower() == ".pdf" else None
+
+
+def public_workspace_document(workspace: dict[str, Any], document: dict[str, Any]) -> dict[str, Any]:
+    workspace_id = str(workspace.get("id", ""))
+    document_id = str(document.get("id", ""))
+    citekey = citation_key_for_evidence({
+        "pmid": document.get("pmid", ""),
+        "doc_id": document_id,
+        "source_name": document.get("original_filename") or document.get("filename", ""),
+    })
+    return {
+        "id": document_id,
+        "workspace_id": workspace_id,
+        "filename": document.get("filename", ""),
+        "original_filename": document.get("original_filename", ""),
+        "uploaded_by": document.get("uploaded_by", ""),
+        "uploaded_at": document.get("uploaded_at", ""),
+        "file_size": document.get("file_size", 0),
+        "pmid": document.get("pmid", ""),
+        "citekey": citekey,
+        "status": document.get("status", "uploaded"),
+        "pdf_url": f"/api/workspaces/{workspace_id}/pdfs/{document_id}/file",
+    }
+
+
+def normalize_library_type(value: str) -> str:
+    raw = str(value or "personal").strip().lower()
+    if raw in {"team", "collaborative", "large"}:
+        return "team"
+    return "personal"
 
 
 def normalize_user_name(name: str) -> str:
@@ -693,6 +1119,13 @@ async def paper_page(pmid: str, request: Request):
         if item.strip()
     }
     rendered_body = render_markdown_article(body, highlight_ids, re.sub(r"\D", "", pmid), title)
+    pdf_upload = detail.get("pdf_upload")
+    pdf_link_html = ""
+    if pdf_upload:
+        pdf_link_html = (
+            f'<a class="source-link pdf-link" data-article-open-pdf '
+            f'href="{html.escape(pdf_upload["url"])}" target="_blank" rel="noopener">Open PDF</a>'
+        )
     fields = [
         ("PMID", metadata.get("pmid", pmid)),
         ("DOI", metadata.get("doi", "")),
@@ -724,6 +1157,7 @@ async def paper_page(pmid: str, request: Request):
             <p class="eyebrow">Rendered paper</p>
             <h1>{html.escape(title)}</h1>
             <dl class="detail-grid">{field_html}</dl>
+            {f'<div class="detail-actions">{pdf_link_html}</div>' if pdf_link_html else ''}
             <div class="article-body rendered-markdown">{rendered_body}</div>
         </article>
     </main>
@@ -738,6 +1172,10 @@ async def paper_page(pmid: str, request: Request):
             zh: {{ add: "加入自选库", added: "已加入自选库", removed: "已从自选库移除", hint: "点击任意句子，可加入你的自选库。", compose: "组文章", library: "自选库", empty: "还没有选择句子。", remove: "移除" }}
         }};
         const labels = text[articleLang] || text.en;
+        labels.openPdf = labels.openPdf || (articleLang === "zh" ? "打开 PDF" : "Open PDF");
+        document.querySelectorAll("[data-article-open-pdf]").forEach((link) => {{
+            link.textContent = labels.openPdf;
+        }});
         const notice = document.createElement("div");
         notice.className = "article-selection-toast";
         notice.textContent = labels.hint;
@@ -769,14 +1207,107 @@ async def paper_page(pmid: str, request: Request):
             <span class="article-cart-icon" aria-hidden="true"></span>
             <span class="article-cart-count">0</span>
         `;
-        libraryCart.addEventListener("click", () => {{
-            sessionStorage.setItem("litdb.project", "aps-review");
-            sessionStorage.setItem("litdb.openArticleComposer", "1");
-        }});
         document.body.appendChild(libraryCart);
         const miniLibrary = document.createElement("aside");
         miniLibrary.className = "article-mini-library";
         document.body.appendChild(miniLibrary);
+        let cartDragState = null;
+        let cartSuppressClick = false;
+        function clampCartPosition(left, top) {{
+            const rect = libraryCart.getBoundingClientRect();
+            const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
+            const maxTop = Math.max(8, window.innerHeight - rect.height - 8);
+            return {{
+                left: Math.min(Math.max(8, left), maxLeft),
+                top: Math.min(Math.max(8, top), maxTop),
+            }};
+        }}
+        function positionMiniLibrary() {{
+            const cartRect = libraryCart.getBoundingClientRect();
+            const miniRect = miniLibrary.getBoundingClientRect();
+            const miniWidth = Math.min(Math.max(miniRect.width || 240, 220), window.innerWidth - 28);
+            const left = Math.min(Math.max(14, cartRect.left), window.innerWidth - miniWidth - 14);
+            const top = Math.min(cartRect.bottom + 12, Math.max(14, window.innerHeight - Math.min(miniRect.height || 220, 280) - 14));
+            miniLibrary.style.left = `${{left}}px`;
+            miniLibrary.style.right = "auto";
+            miniLibrary.style.top = `${{top}}px`;
+            miniLibrary.style.bottom = "auto";
+        }}
+        function loadCartPosition() {{
+            try {{
+                const raw = localStorage.getItem("litdb.articleCartPosition");
+                return raw ? JSON.parse(raw) : null;
+            }} catch {{
+                return null;
+            }}
+        }}
+        function applyCartPosition(position) {{
+            if (!position) {{
+                window.requestAnimationFrame(positionMiniLibrary);
+                return;
+            }}
+            const next = clampCartPosition(Number(position.left) || 18, Number(position.top) || 128);
+            libraryCart.style.left = `${{next.left}}px`;
+            libraryCart.style.top = `${{next.top}}px`;
+            libraryCart.style.right = "auto";
+            libraryCart.style.bottom = "auto";
+            window.requestAnimationFrame(positionMiniLibrary);
+        }}
+        function saveCartPosition() {{
+            const rect = libraryCart.getBoundingClientRect();
+            localStorage.setItem("litdb.articleCartPosition", JSON.stringify({{ left: rect.left, top: rect.top }}));
+        }}
+        libraryCart.addEventListener("pointerdown", (event) => {{
+            if (event.button !== undefined && event.button !== 0) return;
+            const rect = libraryCart.getBoundingClientRect();
+            cartDragState = {{
+                startX: event.clientX,
+                startY: event.clientY,
+                left: rect.left,
+                top: rect.top,
+                moved: false,
+            }};
+            libraryCart.classList.add("dragging");
+            libraryCart.setPointerCapture?.(event.pointerId);
+            event.preventDefault();
+        }});
+        libraryCart.addEventListener("pointermove", (event) => {{
+            if (!cartDragState) return;
+            const dx = event.clientX - cartDragState.startX;
+            const dy = event.clientY - cartDragState.startY;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) cartDragState.moved = true;
+            const next = clampCartPosition(cartDragState.left + dx, cartDragState.top + dy);
+            libraryCart.style.left = `${{next.left}}px`;
+            libraryCart.style.top = `${{next.top}}px`;
+            libraryCart.style.right = "auto";
+            libraryCart.style.bottom = "auto";
+            positionMiniLibrary();
+        }});
+        function finishCartDrag(event) {{
+            if (!cartDragState) return;
+            if (cartDragState.moved) {{
+                cartSuppressClick = true;
+                saveCartPosition();
+                window.setTimeout(() => {{
+                    cartSuppressClick = false;
+                }}, 0);
+            }}
+            libraryCart.classList.remove("dragging");
+            libraryCart.releasePointerCapture?.(event.pointerId);
+            cartDragState = null;
+        }}
+        libraryCart.addEventListener("pointerup", finishCartDrag);
+        libraryCart.addEventListener("pointercancel", finishCartDrag);
+        libraryCart.addEventListener("click", (event) => {{
+            if (cartSuppressClick) {{
+                event.preventDefault();
+                return;
+            }}
+            sessionStorage.setItem("litdb.project", "aps-review");
+            sessionStorage.setItem("litdb.openArticleComposer", "1");
+        }});
+        window.addEventListener("resize", () => applyCartPosition(loadCartPosition()));
+        applyCartPosition(loadCartPosition());
         function escapeHtml(value) {{
             const div = document.createElement("div");
             div.textContent = value == null ? "" : String(value);
@@ -818,6 +1349,7 @@ async def paper_page(pmid: str, request: Request):
             miniLibrary.querySelectorAll("button[data-key]").forEach((button) => {{
                 button.addEventListener("click", () => removeEvidenceItem(button.dataset.key || ""));
             }});
+            window.requestAnimationFrame(positionMiniLibrary);
         }}
         function updateLibraryCartCount() {{
             const items = loadEvidenceLibrary();
@@ -835,6 +1367,7 @@ async def paper_page(pmid: str, request: Request):
             const source = document.querySelector(".article-sentence[data-pmid]");
             return {{
                 pmid: source?.dataset.pmid || window.location.pathname.split("/").filter(Boolean).pop() || "",
+                citekey: source?.dataset.citekey || "",
                 title: source?.dataset.title || document.title,
             }};
         }}
@@ -855,6 +1388,7 @@ async def paper_page(pmid: str, request: Request):
                     key,
                     id: sentence.dataset.sentenceId,
                     pmid: sentence.dataset.pmid,
+                    citekey: sentence.dataset.citekey || "",
                     section: sentence.dataset.section || "",
                     text: textValue,
                     citation: sentence.dataset.title || document.title,
@@ -892,6 +1426,7 @@ async def paper_page(pmid: str, request: Request):
                 key: `${{meta.pmid}}:manual:${{keySeed}}`,
                 id: sentence?.dataset.sentenceId || `manual-${{Date.now()}}`,
                 pmid: sentence?.dataset.pmid || meta.pmid,
+                citekey: sentence?.dataset.citekey || meta.citekey || (meta.pmid ? `pmid:${{meta.pmid}}` : ""),
                 section: sentence?.dataset.section || "",
                 text: textValue,
                 citation: sentence?.dataset.title || meta.title,
@@ -965,8 +1500,9 @@ async def api_health():
 @app.get("/api/papers")
 async def api_papers():
     papers = load_papers()
+    pdf_uploads = latest_pdf_uploads_by_pmid()
     return {
-        "papers": papers,
+        "papers": [paper_with_pdf_upload(paper, pdf_uploads) for paper in papers],
         "summary": {
             "count": len(papers),
             "priority_counts": count_by(papers, "priority"),
@@ -974,6 +1510,24 @@ async def api_papers():
             "module_counts": count_multi_value(papers, "aps_modules"),
         },
     }
+
+
+@app.get("/api/citations.csv")
+async def api_citations_csv():
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["pmid", "doi", "title", "authors", "year", "journal", "citekey"])
+    writer.writeheader()
+    for paper in load_papers():
+        writer.writerow({
+            "pmid": paper.get("pmid", ""),
+            "doi": paper.get("doi", ""),
+            "title": paper.get("title", ""),
+            "authors": paper.get("authors", ""),
+            "year": paper.get("year", ""),
+            "journal": paper.get("journal", ""),
+            "citekey": paper.get("citekey") or citation_key_for_metadata(paper),
+        })
+    return Response(content=output.getvalue(), media_type="text/csv")
 
 
 @app.get("/api/papers/{pmid}")
@@ -989,6 +1543,197 @@ async def api_paper_evidence(pmid: str):
         "title": detail["metadata"].get("title", f"PMID {pmid}"),
         "sentences": list(evidence_index_for_pmid(pmid)),
     }
+
+
+@app.get("/api/workspaces")
+async def api_workspaces():
+    workspaces = sorted(
+        load_workspaces(),
+        key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""),
+        reverse=True,
+    )
+    return {"workspaces": [public_workspace(item) for item in workspaces]}
+
+
+@app.post("/api/workspaces")
+async def api_create_workspace(request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    name = re.sub(r"\s+", " ", str(body.get("name", ""))).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Workspace name is required")
+    library_type = normalize_library_type(str(body.get("library_type", "personal")))
+    owner = find_user_by_token(str(body.get("user_token") or ""))
+    now = datetime.now().isoformat()
+    workspace_id = f"{slugify_workspace_name(name)}-{uuid.uuid4().hex[:8]}"
+    workspace = {
+        "id": workspace_id,
+        "name": name[:100],
+        "description": str(body.get("description", "")).strip()[:300],
+        "library_type": library_type,
+        "owner_user_id": owner.get("id") if owner else "",
+        "owner_name": owner.get("name") if owner else str(body.get("user_name", "")).strip()[:80],
+        "created_by": str(body.get("user_name", "")).strip()[:80],
+        "created_at": now,
+        "updated_at": now,
+        "documents": [],
+    }
+    workspaces = load_workspaces()
+    workspaces.append(workspace)
+    save_workspaces(workspaces)
+    (workspace_dir(workspace_id) / "pdfs").mkdir(parents=True, exist_ok=True)
+    return {"workspace": public_workspace(workspace)}
+
+
+@app.delete("/api/workspaces/{workspace_id}")
+async def api_delete_workspace(workspace_id: str, request: Request):
+    workspace = find_workspace(workspace_id)
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        body = {}
+    library_type = normalize_library_type(str(workspace.get("library_type", "personal")))
+    if library_type == "team":
+        raise HTTPException(status_code=403, detail="Team workspaces can only be deleted by administrators")
+    user = find_user_by_token(str(body.get("user_token") or ""))
+    owner_id = str(workspace.get("owner_user_id") or "")
+    owner_name = str(workspace.get("owner_name") or workspace.get("created_by") or "").casefold()
+    request_name = str(body.get("user_name") or "").strip().casefold()
+    owns_workspace = bool(user and owner_id and user.get("id") == owner_id) or bool(request_name and request_name == owner_name)
+    if not owns_workspace:
+        raise HTTPException(status_code=403, detail="Only the workspace owner can delete this workspace")
+    target_dir = workspace_dir(workspace_id)
+    workspaces = [item for item in load_workspaces() if item.get("id") != workspace_id]
+    save_workspaces(workspaces)
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    return {"deleted": True, "workspace_id": workspace_id}
+
+
+@app.get("/api/workspaces/{workspace_id}/pdfs")
+async def api_workspace_pdfs(workspace_id: str):
+    workspace = find_workspace(workspace_id)
+    documents = [
+        public_workspace_document(workspace, document)
+        for document in workspace.get("documents", [])
+        if workspace_document_path(workspace, document)
+    ]
+    documents.sort(key=lambda item: str(item.get("uploaded_at", "")), reverse=True)
+    return {"workspace": public_workspace(workspace), "documents": documents}
+
+
+@app.post("/api/workspaces/{workspace_id}/pdfs")
+async def api_workspace_upload_pdf(
+    workspace_id: str,
+    file: UploadFile = File(...),
+    uploader_name: str = Form(""),
+    pmid: str = Form(""),
+):
+    workspace = find_workspace(workspace_id)
+    if not file.filename or Path(file.filename).suffix.lower() != ".pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+    library_type = normalize_library_type(str(workspace.get("library_type", "personal")))
+    clean_pmid = re.sub(r"\D", "", pmid)
+    if library_type == "team" and not clean_pmid:
+        raise HTTPException(status_code=400, detail="A numeric PMID is required for team workspaces")
+    if library_type == "personal" and len(workspace.get("documents", [])) >= 99:
+        raise HTTPException(status_code=400, detail="Small literature libraries support fewer than 100 PDFs")
+    pdf_dir = workspace_dir(workspace_id) / "pdfs"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = safe_workspace_upload_name(file.filename)
+    destination = pdf_dir / safe_name
+    size = 0
+    try:
+        with destination.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    out.close()
+                    destination.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="PDF exceeds upload size limit")
+                out.write(chunk)
+    finally:
+        await file.close()
+
+    document = {
+        "id": str(uuid.uuid4()),
+        "filename": safe_name,
+        "original_filename": file.filename,
+        "uploaded_by": uploader_name.strip()[:80],
+        "uploaded_at": datetime.now().isoformat(),
+        "file_size": size,
+        "pmid": clean_pmid,
+        "status": "uploaded",
+    }
+    workspaces = load_workspaces()
+    for item in workspaces:
+        if item.get("id") == workspace_id:
+            item.setdefault("documents", []).append(document)
+            item["updated_at"] = datetime.now().isoformat()
+            workspace = item
+            break
+    save_workspaces(workspaces)
+    return {"message": "File uploaded successfully", "document": public_workspace_document(workspace, document)}
+
+
+@app.get("/api/workspaces/{workspace_id}/pdfs/{document_id}/file")
+async def api_workspace_pdf_file(workspace_id: str, document_id: str):
+    workspace = find_workspace(workspace_id)
+    target = None
+    for document in workspace.get("documents", []):
+        if document.get("id") == document_id:
+            target = document
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="PDF not found")
+    path = workspace_document_path(workspace, target)
+    if not path:
+        raise HTTPException(status_code=404, detail="PDF file not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=str(target.get("original_filename") or path.name),
+        content_disposition_type="inline",
+    )
+
+
+@app.post("/api/workspaces/{workspace_id}/paperqa/query")
+async def api_workspace_query(workspace_id: str, request: Request):
+    workspace = find_workspace(workspace_id)
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    question = str(body.get("question", "")).strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is required")
+    paths = [
+        path
+        for document in workspace.get("documents", [])
+        for path in [workspace_document_path(workspace, document)]
+        if path
+    ]
+    if not paths:
+        raise HTTPException(status_code=400, detail="Upload at least one PDF before asking PaperQA")
+    from paperqa_engine import query_files
+
+    try:
+        result = await query_files(
+            question=question,
+            file_paths=paths,
+            k=int(body.get("k", 10)),
+            max_sources=int(body.get("max_sources", 5)),
+        )
+        result["contexts"] = enrich_workspace_contexts(workspace, result.get("contexts", []))
+        result["answer_segments"] = parse_answer_citation_segments(str(result.get("answer", "")))
+        result["answer"] = answer_segments_to_text(result["answer_segments"])
+        result["draft_llm"] = llm_runtime_config()["draft"]
+        return result
+    except Exception as exc:
+        logger.exception("Workspace PaperQA query failed")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/paperqa/resolve-evidence")
@@ -1031,6 +1776,12 @@ async def api_query(request: Request):
     try:
         result = await engine_query(question=question, k=k, max_sources=max_sources)
         result["contexts"] = enrich_contexts_with_evidence(result.get("contexts", []))
+        answer_segments = parse_answer_citation_segments(str(result.get("answer", "")))
+        result["answer_segments"] = answer_segments
+        result["answer"] = answer_segments_to_text(answer_segments)
+        for context in result["contexts"]:
+            context["text"] = strip_display_line_references(str(context.get("text", "")))
+            context["citation"] = strip_display_line_references(str(context.get("citation", "")))
         result["llm"] = result.get("llm") or llm_runtime_config()["paperqa"]
         result["draft_llm"] = llm_runtime_config()["draft"]
         return result
@@ -1059,9 +1810,12 @@ async def api_draft_paragraph(request: Request):
         text = strip_markdown_inline(str(item.get("text", ""))).strip()
         if not text:
             continue
+        reference = draft_evidence_reference(item)
         clean_evidences.append(
             {
-                "pmid": str(item.get("pmid", "")),
+                **reference,
+                "doc_id": str(item.get("doc_id", "")),
+                "source_name": str(item.get("source_name") or item.get("citation") or ""),
                 "section": str(item.get("section", "")),
                 "text": text,
             }
@@ -1076,7 +1830,7 @@ async def api_draft_paragraph(request: Request):
     language = "Chinese" if str(body.get("lang", "en")).lower().startswith("zh") else "English"
     instruction = strip_markdown_inline(str(body.get("instruction", ""))).strip()[:1200]
     evidence_lines = "\n".join(
-        f"- PMID {item['pmid']} [{item['section']}]: {item['text']}"
+        f"- {item['citation']} {evidence_source_label(item)} [{item['section']}]: {item['text']}"
         for item in clean_evidences
     )
     instruction_block = f"\nParagraph goal from the user: {instruction}\n" if instruction else "\n"
@@ -1084,7 +1838,9 @@ async def api_draft_paragraph(request: Request):
         f"Write one concise {language} review paragraph for a scientific manuscript using only the evidence below.\n"
         "Do not add claims that are not supported by the selected evidence. "
         "Keep the tone suitable for a biomedical review article. "
-        "Mention PMID citations inline where useful.\n"
+        "Use only Pandoc citation keys from the selected evidence, for example [@pmid:16420554]. "
+        "Do not output numbered citations like [1], [2], or a reference list. "
+        "Do not invent citation keys.\n"
         f"{instruction_block}\n"
         f"Selected evidence:\n{evidence_lines}"
     )
@@ -1103,7 +1859,8 @@ async def api_draft_paragraph(request: Request):
         logger.exception("Draft generation failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
-    draft = getattr(response, "content", str(response)).strip()
+    citation_keys = sorted({item["citekey"] for item in clean_evidences if item.get("citekey")})
+    draft = normalize_draft_citations(getattr(response, "content", str(response)).strip(), set(citation_keys))
     record = save_draft_record(
         user=resolve_user_from_body(body),
         draft_type="paragraph",
@@ -1114,6 +1871,7 @@ async def api_draft_paragraph(request: Request):
             "mode": mode,
             "instruction": instruction,
             "lang": str(body.get("lang", "en")),
+            "citation_keys": citation_keys,
         },
     )
     return {
@@ -1121,6 +1879,8 @@ async def api_draft_paragraph(request: Request):
         "draft": draft,
         "llm": config,
         "evidence_count": len(clean_evidences),
+        "citation_keys": citation_keys,
+        "references": unique_reference_rows(clean_evidences),
         "record": record,
     }
 
@@ -1156,9 +1916,12 @@ async def api_draft_article(request: Request):
                 text = strip_markdown_inline(str(item.get("text", ""))).strip()
                 if not text:
                     continue
+                reference = draft_evidence_reference(item)
                 clean_evidences.append(
                     {
-                        "pmid": str(item.get("pmid", "")),
+                        **reference,
+                        "doc_id": str(item.get("doc_id", "")),
+                        "source_name": str(item.get("source_name") or item.get("citation") or ""),
                         "section": str(item.get("section", "")),
                         "text": text,
                     }
@@ -1188,7 +1951,7 @@ async def api_draft_article(request: Request):
     for paragraph in clean_paragraphs:
         length_line = f"\nApproximate length: {paragraph['length']}" if paragraph["length"] else ""
         evidence_lines = "\n".join(
-            f"  - PMID {item['pmid']} [{item['section']}]: {item['text']}"
+            f"  - {item['citation']} {evidence_source_label(item)} [{item['section']}]: {item['text']}"
             for item in paragraph["evidences"]
         ) or "  - No direct evidence assigned."
         paragraph_blocks.append(
@@ -1201,7 +1964,9 @@ async def api_draft_article(request: Request):
         f"Write a coherent multi-paragraph {language} biomedical review draft using the paragraph plans below.\n"
         "Treat the plans as an ordered outline. Make transitions between paragraphs explicit and smooth. "
         "Use only the supplied evidence for factual claims; do not invent unsupported claims. "
-        "Mention PMID citations inline where useful. Do not use bullet points unless the user asks for them.\n\n"
+        "Use only Pandoc citation keys from the supplied evidence, for example [@pmid:16420554]. "
+        "Do not output numbered citations like [1], [2], or a reference list. "
+        "Do not invent citation keys. Do not use bullet points unless the user asks for them.\n\n"
         "Paragraph plans:\n"
         + "\n\n".join(paragraph_blocks)
     )
@@ -1220,7 +1985,13 @@ async def api_draft_article(request: Request):
         logger.exception("Article draft generation failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
-    draft = getattr(response, "content", str(response)).strip()
+    citation_keys = sorted({
+        item["citekey"]
+        for paragraph in clean_paragraphs
+        for item in paragraph["evidences"]
+        if item.get("citekey")
+    })
+    draft = normalize_draft_citations(getattr(response, "content", str(response)).strip(), set(citation_keys))
     record = save_draft_record(
         user=resolve_user_from_body(body),
         draft_type="article",
@@ -1230,6 +2001,7 @@ async def api_draft_article(request: Request):
         prompt_meta={
             "mode": mode,
             "lang": str(body.get("lang", "en")),
+            "citation_keys": citation_keys,
             "paragraphs": [
                 {
                     "instruction": paragraph["instruction"],
@@ -1246,6 +2018,12 @@ async def api_draft_article(request: Request):
         "llm": config,
         "paragraph_count": len(clean_paragraphs),
         "evidence_count": total_evidence_count,
+        "citation_keys": citation_keys,
+        "references": unique_reference_rows([
+            item
+            for paragraph in clean_paragraphs
+            for item in paragraph["evidences"]
+        ]),
         "record": record,
     }
 
@@ -1304,7 +2082,31 @@ async def api_uploads():
         key=lambda item: str(item.get("uploaded_at", "")),
         reverse=True,
     )
-    return {"uploads": metadata}
+    uploads = []
+    for item in metadata:
+        public_pdf = public_pdf_upload(item)
+        uploads.append({**item, "pdf_url": public_pdf["url"] if public_pdf else ""})
+    return {"uploads": uploads}
+
+
+@app.get("/api/uploads/{upload_id}/file")
+async def api_upload_file(upload_id: int):
+    target = None
+    for item in load_uploads_metadata():
+        if int(item.get("id", 0) or 0) == upload_id:
+            target = item
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    path = upload_file_path(target)
+    if not path:
+        raise HTTPException(status_code=404, detail="PDF file not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=str(target.get("original_filename") or path.name),
+        content_disposition_type="inline",
+    )
 
 
 @app.delete("/api/uploads/{upload_id}")

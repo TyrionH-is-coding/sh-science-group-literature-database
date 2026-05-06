@@ -36,13 +36,6 @@
     <div class="project-screen hidden" id="project-screen">
         <header class="topbar">
             <div class="brand-heading">
-                <span class="sh-logo" aria-hidden="true">
-                    <svg viewBox="0 0 80 80" role="img" focusable="false">
-                        <rect x="10" y="10" width="60" height="60" rx="18"></rect>
-                        <text x="40" y="50" text-anchor="middle">SH</text>
-                        <circle cx="61" cy="18" r="5"></circle>
-                    </svg>
-                </span>
                 <div>
                     <p class="eyebrow" data-i18n="projectEyebrow">Project hub</p>
                     <h1 data-i18n="projectTitle">Choose a dataset</h1>
@@ -63,6 +56,34 @@
                 <span data-i18n="apsDescription">Systematic review corpus with PaperQA search, paper inspection, and PDF upload queue.</span>
                 <em data-i18n="enterProject">Enter project</em>
             </button>
+            <form class="project-card create-workspace-card" id="create-workspace-form">
+                <span class="project-kicker" data-i18n="newWorkspaceKicker">Custom workspace</span>
+                <strong data-i18n="newWorkspaceTitle">Add workspace</strong>
+                <span data-i18n="newWorkspaceDescription">Create a small PDF library, then ask PaperQA and draft from selected evidence.</span>
+                <button class="primary-button workspace-start-button" id="start-create-workspace" type="button" data-i18n="createWorkspace">Create workspace</button>
+                <div class="workspace-create-setup hidden" id="workspace-create-setup">
+                    <div class="workspace-type-options" role="radiogroup" aria-label="Workspace type">
+                        <label class="workspace-type-option">
+                            <input type="radio" name="workspace-type" value="personal" checked>
+                            <span>
+                                <strong data-i18n="personalWorkspace">Small literature library</strong>
+                                <small data-i18n="personalWorkspaceHint">No PMID required, fewer than 100 PDFs, suitable for 2-5 collaborators.</small>
+                            </span>
+                        </label>
+                        <label class="workspace-type-option">
+                            <input type="radio" name="workspace-type" value="team">
+                            <span>
+                                <strong data-i18n="teamWorkspace">Team library</strong>
+                                <small data-i18n="teamWorkspaceHint">PMID required for each PDF.</small>
+                            </span>
+                        </label>
+                    </div>
+                    <input id="new-workspace-name" class="text-input" type="text" data-i18n-placeholder="newWorkspacePlaceholder" placeholder="Workspace name">
+                    <button class="primary-button" type="submit" data-i18n="createWorkspace">Create workspace</button>
+                </div>
+                <p class="form-message" id="workspace-message"></p>
+            </form>
+            <div class="custom-workspace-list" id="custom-workspaces"></div>
         </main>
     </div>
 
@@ -86,6 +107,7 @@
                     <button class="lang-button active" type="button" data-lang="en">EN</button>
                     <button class="lang-button" type="button" data-lang="zh">中文</button>
                 </div>
+                <button class="project-switch-chip" id="back-to-projects" type="button" data-i18n="backToProjects">Projects</button>
                 <button class="user-chip" id="user-chip" type="button" title="Switch user" data-i18n-title="switchUser"></button>
                 <button class="history-chip" id="draft-history-chip" type="button">
                     <span data-i18n="draftHistory">Draft history</span>
@@ -228,9 +250,20 @@
                             <p class="panel-label" data-i18n="manualPdfs">Manual PDFs</p>
                             <h2 data-i18n="uploadQueue">Upload queue</h2>
                         </div>
-                        <button class="secondary-button" id="refresh-uploads" type="button" data-i18n="refresh">Refresh</button>
+                        <div class="upload-toolbar">
+                            <label class="upload-filter-toggle">
+                                <input id="my-uploads-only" type="checkbox">
+                                <span data-i18n="myUploadsOnly">Only mine</span>
+                            </label>
+                            <button class="secondary-button" id="refresh-uploads" type="button" data-i18n="refresh">Refresh</button>
+                        </div>
                     </div>
                     <div id="uploads-list" class="uploads-list"></div>
+                    <div class="upload-pagination hidden" id="upload-pagination">
+                        <button class="secondary-button small-button" id="prev-upload-page" type="button" data-i18n="previousPage">Previous</button>
+                        <span id="upload-page-status" class="upload-page-status"></span>
+                        <button class="secondary-button small-button" id="next-upload-page" type="button" data-i18n="nextPage">Next</button>
+                    </div>
                 </section>
 
                 <section id="view-guide" class="view">

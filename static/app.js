@@ -5,11 +5,19 @@ const state = {
     moduleCounts: {},
     paperPage: 1,
     pageSize: 50,
+    uploads: [],
+    filteredUploads: [],
+    uploadPage: 1,
+    uploadPageSize: 20,
+    myUploadsOnly: localStorage.getItem("litdb.myUploadsOnly") === "1",
     userName: localStorage.getItem("litdb.userName") || "",
     userToken: localStorage.getItem("litdb.userToken") || "",
     userId: localStorage.getItem("litdb.userId") || "",
     lang: localStorage.getItem("litdb.lang") || "en",
     project: sessionStorage.getItem("litdb.project") || "",
+    customWorkspaces: [],
+    workspaceDocuments: [],
+    activeWorkspace: null,
     evidenceByKey: {},
     evidenceLibrary: loadEvidenceLibrary(),
     draftHistory: [],
@@ -29,6 +37,30 @@ const i18n = {
         apsTitle: "APS Review",
         apsDescription: "Systematic review corpus with PaperQA search, paper inspection, and PDF upload queue.",
         enterProject: "Enter project",
+        newWorkspaceKicker: "Custom workspace",
+        newWorkspaceTitle: "Add workspace",
+        newWorkspaceDescription: "Create a small PDF library, then ask PaperQA and draft from selected evidence.",
+        newWorkspacePlaceholder: "Workspace name",
+        personalWorkspace: "Small literature library",
+        personalWorkspaceHint: "No PMID required, fewer than 100 PDFs, suitable for 2-5 collaborators.",
+        teamWorkspace: "Team library",
+        teamWorkspaceHint: "PMID required for each PDF.",
+        createWorkspace: "Create workspace",
+        workspaceCreated: "Workspace created.",
+        workspaceCreateFailed: "Could not create workspace.",
+        deleteWorkspace: "Delete library",
+        deleteWorkspaceConfirm: "Delete this library and its uploaded PDFs?",
+        deleteWorkspaceBlocked: "Team libraries can only be deleted by administrators.",
+        workspaceDeleted: "Library deleted.",
+        workspaceTypePersonal: "Small library",
+        workspaceTypeTeam: "Team",
+        customWorkspace: "Custom workspace",
+        pdfLibrary: "PDF Library",
+        pdfFiles: "PDF files",
+        noWorkspacePdfs: "No PDFs uploaded in this workspace yet.",
+        workspaceUploadHint: "PMID is optional in small literature libraries.",
+        workspaceQueryPlaceholder: "Ask a question about the uploaded PDFs.",
+        backToProjects: "Projects",
         appEyebrow: "APS Review Workspace",
         appTitle: "SH Science Group",
         checkingPaperQA: "Checking PaperQA",
@@ -100,6 +132,7 @@ const i18n = {
         generateArticle: "Generate article",
         generatedArticle: "Generated article",
         generatingArticle: "Generating the article from paragraph plans...",
+        citationKeysUsed: "Citation keys",
         articleNeedEvidence: "Assign evidence to at least one paragraph.",
         articleNeedParagraph: "Add at least one paragraph plan.",
         paragraphEvidence: "Evidence assigned to this paragraph",
@@ -129,7 +162,7 @@ const i18n = {
         guideUploadTitle: "7. Upload PDFs",
         guideUploadText: "Use the upload panel for manual PDFs. A PMID is required, and the current user name is recorded with the upload.",
         guideUpdatesTitle: "Update notes",
-        guideUpdateLatest: "May 2026: added simple accounts, saved draft history, article-page sentence selection, Evidence Library management, article composer routing, and 50-paper pagination.",
+        guideUpdateLatest: "May 2026: added simple accounts, saved draft history, article-page sentence selection, Evidence Library management, article composer routing, 50-paper pagination, draggable article Evidence Library shortcut, upload-record filtering with 20-record pagination, progress indicators for long-running AI/upload tasks, and direct PDF links for papers with uploaded PDFs.",
         guideUpdateNext: "Future changes should be added here with a short date and user-facing summary.",
         literatureTable: "Literature Table",
         reviewReadyPapers: "Literature Library",
@@ -145,6 +178,8 @@ const i18n = {
         answerEmpty: "Answers and cited source snippets will appear here.",
         manualPdfs: "Manual PDFs",
         uploadQueue: "Upload queue",
+        myUploadsOnly: "Only mine",
+        uploadRecordsUnit: "records",
         refresh: "Refresh",
         selectedPaper: "Selected Paper",
         selectPaperEmpty: "Select a paper to inspect metadata and abstract.",
@@ -162,6 +197,9 @@ const i18n = {
         sources: "Cited evidence",
         evidenceHint: "Checked sentences can be used to generate a manuscript-ready paragraph.",
         openPaper: "Open original",
+        openPdf: "Open PDF",
+        pdfAvailable: "PDF available",
+        pdfMissing: "No PDF uploaded",
         openHighlighted: "Open highlighted paper",
         generateFromEvidence: "Generate paragraph",
         generatedParagraph: "Generated paragraph",
@@ -207,6 +245,30 @@ const i18n = {
         apsTitle: "APS Review",
         apsDescription: "系统综述语料库，支持 PaperQA 检索、文献查看和 PDF 上传队列。",
         enterProject: "进入项目",
+        newWorkspaceKicker: "自建工作区",
+        newWorkspaceTitle: "新增工作区",
+        newWorkspaceDescription: "创建一个小型 PDF 文献库，用 PaperQA 提问，并从证据句子生成写作草稿。",
+        newWorkspacePlaceholder: "工作区名称",
+        personalWorkspace: "小型文献库",
+        personalWorkspaceHint: "不要求 PMID，少于 100 篇 PDF，适合 2-5 人协作使用。",
+        teamWorkspace: "多人合作文献库",
+        teamWorkspaceHint: "每篇 PDF 必须填写 PMID。",
+        createWorkspace: "创建工作区",
+        workspaceCreated: "工作区已创建。",
+        workspaceCreateFailed: "无法创建工作区。",
+        deleteWorkspace: "删除文献库",
+        deleteWorkspaceConfirm: "确定删除这个文献库和其中已上传的 PDF 吗？",
+        deleteWorkspaceBlocked: "多人合作文献库仅管理员可删除。",
+        workspaceDeleted: "文献库已删除。",
+        workspaceTypePersonal: "小型库",
+        workspaceTypeTeam: "团队",
+        customWorkspace: "自建工作区",
+        pdfLibrary: "PDF 文献库",
+        pdfFiles: "PDF 文件",
+        noWorkspacePdfs: "这个工作区还没有上传 PDF。",
+        workspaceUploadHint: "小型文献库不需要填写 PMID。",
+        workspaceQueryPlaceholder: "针对已上传 PDF 提问。",
+        backToProjects: "项目选择",
         appEyebrow: "APS 综述工作区",
         appTitle: "SH Science Group",
         checkingPaperQA: "正在检查 PaperQA",
@@ -278,6 +340,7 @@ const i18n = {
         generateArticle: "生成文章",
         generatedArticle: "生成文章",
         generatingArticle: "正在根据段落计划生成文章...",
+        citationKeysUsed: "引用键",
         articleNeedEvidence: "请至少给一个段落分配证据。",
         articleNeedParagraph: "请至少添加一个段落计划。",
         paragraphEvidence: "本段使用的证据",
@@ -307,7 +370,7 @@ const i18n = {
         guideUploadTitle: "7. 上传 PDF",
         guideUploadText: "上传面板用于人工补充 PDF。需要填写 PMID，系统会记录当前上传用户。",
         guideUpdatesTitle: "更新记录",
-        guideUpdateLatest: "2026 年 5 月：加入轻量账号、生成记录、原文页选句、自选库管理、组文章跳转和 50 篇分页。",
+        guideUpdateLatest: "2026 年 5 月：加入轻量账号、生成记录、原文页选句、自选库管理、组文章跳转、50 篇文献分页、原文页可拖动自选库入口、上传记录按 20 条分页和只看我的记录，为 AI 生成和上传等耗时任务加入进度提示，并为已有上传 PDF 的文献加入直接打开 PDF 的入口。",
         guideUpdateNext: "以后每次新增功能，都在这里按日期补一条面向用户的说明。",
         literatureTable: "文献表",
         reviewReadyPapers: "文献库",
@@ -323,6 +386,8 @@ const i18n = {
         answerEmpty: "这里会显示回答和可勾选的引用句子。",
         manualPdfs: "人工 PDF",
         uploadQueue: "上传队列",
+        myUploadsOnly: "只看我的记录",
+        uploadRecordsUnit: "条记录",
         refresh: "刷新",
         selectedPaper: "选中文献",
         selectPaperEmpty: "选择一篇文献查看元数据和摘要。",
@@ -340,6 +405,9 @@ const i18n = {
         sources: "引用证据",
         evidenceHint: "勾选句子后，可生成能直接放入文章草稿的段落。",
         openPaper: "打开原文",
+        openPdf: "打开 PDF",
+        pdfAvailable: "已有 PDF",
+        pdfMissing: "暂无 PDF",
         openHighlighted: "打开高亮原文",
         generateFromEvidence: "生成段落",
         generatedParagraph: "生成段落",
@@ -417,7 +485,14 @@ const els = {
     userChip: document.getElementById("user-chip"),
     projectUserChip: document.getElementById("project-user-chip"),
     draftHistoryChip: document.getElementById("draft-history-chip"),
+    backToProjects: document.getElementById("back-to-projects"),
     openApsProject: document.getElementById("open-aps-project"),
+    createWorkspaceForm: document.getElementById("create-workspace-form"),
+    startCreateWorkspace: document.getElementById("start-create-workspace"),
+    workspaceCreateSetup: document.getElementById("workspace-create-setup"),
+    newWorkspaceName: document.getElementById("new-workspace-name"),
+    workspaceMessage: document.getElementById("workspace-message"),
+    customWorkspaces: document.getElementById("custom-workspaces"),
     signedUpload: document.getElementById("signed-upload"),
     engineStatus: document.getElementById("engine-status"),
     statusStrip: document.getElementById("status-strip"),
@@ -452,6 +527,11 @@ const els = {
     uploadMessage: document.getElementById("upload-message"),
     uploadsList: document.getElementById("uploads-list"),
     refreshUploads: document.getElementById("refresh-uploads"),
+    myUploadsOnly: document.getElementById("my-uploads-only"),
+    uploadPagination: document.getElementById("upload-pagination"),
+    prevUploadPage: document.getElementById("prev-upload-page"),
+    nextUploadPage: document.getElementById("next-upload-page"),
+    uploadPageStatus: document.getElementById("upload-page-status"),
     backToWorkspace: document.getElementById("back-to-workspace"),
     backFromHistory: document.getElementById("back-from-history"),
     addParagraph: document.getElementById("add-paragraph"),
@@ -481,6 +561,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadHealth();
     loadPapers();
     loadUploads();
+    loadWorkspaces();
     window.setInterval(loadHealth, 15000);
     window.addEventListener("storage", handleStorageUpdate);
     window.addEventListener("focus", handleFocusRefresh);
@@ -488,6 +569,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function t(key) {
     return (i18n[state.lang] && i18n[state.lang][key]) || i18n.en[key] || key;
+}
+
+function isCustomWorkspace() {
+    return state.project.startsWith("workspace:");
+}
+
+function activeWorkspaceId() {
+    return isCustomWorkspace() ? state.project.slice("workspace:".length) : "";
+}
+
+function workspaceTypeLabel(workspace) {
+    return (workspace?.library_type || "personal") === "team" ? t("workspaceTypeTeam") : t("workspaceTypePersonal");
+}
+
+function activeWorkspaceRequiresPmid() {
+    return Boolean(state.activeWorkspace && state.activeWorkspace.requires_pmid);
+}
+
+function canDeleteWorkspace(workspace) {
+    if (!workspace || workspace.library_type === "team") return false;
+    if (workspace.owner_user_id && state.userId) return workspace.owner_user_id === state.userId;
+    return Boolean(workspace.owner_name && state.userName && workspace.owner_name.toLowerCase() === state.userName.toLowerCase());
 }
 
 function bindLogin() {
@@ -511,12 +614,142 @@ function bindLogin() {
     });
 
     [els.userChip, els.projectUserChip].forEach((button) => button.addEventListener("click", switchUser));
+    els.backToProjects.addEventListener("click", returnToProjectHub);
 
     els.openApsProject.addEventListener("click", () => {
         state.project = "aps-review";
         sessionStorage.setItem("litdb.project", state.project);
         refreshUserState();
+        loadPapers();
+        loadUploads();
     });
+    els.startCreateWorkspace.addEventListener("click", showWorkspaceCreateSetup);
+    els.createWorkspaceForm.addEventListener("submit", createWorkspace);
+}
+
+function showWorkspaceCreateSetup() {
+    els.startCreateWorkspace.classList.add("hidden");
+    els.workspaceCreateSetup.classList.remove("hidden");
+    window.requestAnimationFrame(() => {
+        const checked = document.querySelector("input[name='workspace-type']:checked");
+        checked?.focus();
+    });
+}
+
+function returnToProjectHub() {
+    state.project = "";
+    state.activeWorkspace = null;
+    state.workspaceDocuments = [];
+    sessionStorage.removeItem("litdb.project");
+    sessionStorage.removeItem("litdb.openArticleComposer");
+    window.history.replaceState(null, "", window.location.pathname);
+    refreshUserState();
+    loadWorkspaces();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function loadWorkspaces() {
+    if (!els.customWorkspaces) return;
+    try {
+        const data = await fetchJson("/api/workspaces");
+        state.customWorkspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
+        if (isCustomWorkspace()) {
+            state.activeWorkspace = state.customWorkspaces.find((item) => item.id === activeWorkspaceId()) || state.activeWorkspace;
+            refreshUserState();
+            loadWorkspacePdfs();
+        }
+        renderCustomWorkspaces();
+    } catch {
+        state.customWorkspaces = [];
+        renderCustomWorkspaces();
+    }
+}
+
+function renderCustomWorkspaces() {
+    if (!els.customWorkspaces) return;
+    els.customWorkspaces.innerHTML = state.customWorkspaces.map((workspace) => `
+        <article class="project-card custom-project-card">
+            <button class="workspace-card-open" type="button" data-workspace-id="${escapeHtml(workspace.id)}">
+                <span class="project-kicker">${escapeHtml(workspaceTypeLabel(workspace))} · ${escapeHtml(t("customWorkspace"))}</span>
+                <strong>${escapeHtml(workspace.name)}</strong>
+                <span>${escapeHtml(workspace.document_count || 0)} ${escapeHtml(t("pdfFiles"))}${workspace.requires_pmid ? ` · PMID` : ""}</span>
+            </button>
+            <div class="workspace-card-actions">
+                <button class="workspace-enter-button" type="button" data-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("enterProject"))}</button>
+                <button class="text-button workspace-delete-button ${canDeleteWorkspace(workspace) ? "" : "hidden"}" type="button" data-delete-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("deleteWorkspace"))}</button>
+                <span class="workspace-delete-note ${workspace.library_type === "team" ? "" : "hidden"}">${escapeHtml(t("deleteWorkspaceBlocked"))}</span>
+            </div>
+        </article>
+    `).join("");
+    els.customWorkspaces.querySelectorAll("[data-workspace-id]").forEach((button) => {
+        button.addEventListener("click", () => openCustomWorkspace(button.dataset.workspaceId));
+    });
+    els.customWorkspaces.querySelectorAll("[data-delete-workspace-id]").forEach((button) => {
+        button.addEventListener("click", () => deleteWorkspace(button.dataset.deleteWorkspaceId));
+    });
+}
+
+async function deleteWorkspace(workspaceId) {
+    const workspace = state.customWorkspaces.find((item) => item.id === workspaceId);
+    if (!workspace) return;
+    if (!window.confirm(`${t("deleteWorkspaceConfirm")}\n${workspace.name}`)) return;
+    try {
+        await fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                user_token: state.userToken,
+                user_name: state.userName,
+            }),
+        });
+        if (activeWorkspaceId() === workspaceId) returnToProjectHub();
+        await loadWorkspaces();
+    } catch (error) {
+        window.alert(formatError(error.message));
+    }
+}
+
+async function createWorkspace(event) {
+    event.preventDefault();
+    const name = els.newWorkspaceName.value.trim();
+    if (!name) return;
+    const libraryType = document.querySelector("input[name='workspace-type']:checked")?.value || "personal";
+    els.workspaceMessage.textContent = "";
+    try {
+        const result = await fetchJson("/api/workspaces", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name,
+                library_type: libraryType,
+                user_name: state.userName,
+                user_token: state.userToken,
+            }),
+        });
+        els.newWorkspaceName.value = "";
+        els.workspaceCreateSetup.classList.add("hidden");
+        els.startCreateWorkspace.classList.remove("hidden");
+        els.workspaceMessage.textContent = t("workspaceCreated");
+        els.workspaceMessage.className = "form-message success-text";
+        await loadWorkspaces();
+        openCustomWorkspace(result.workspace.id);
+    } catch (error) {
+        els.workspaceMessage.textContent = `${t("workspaceCreateFailed")} ${formatError(error.message)}`;
+        els.workspaceMessage.className = "form-message error-text";
+    }
+}
+
+function openCustomWorkspace(workspaceId) {
+    const workspace = state.customWorkspaces.find((item) => item.id === workspaceId) || { id: workspaceId, name: t("customWorkspace") };
+    state.project = `workspace:${workspaceId}`;
+    state.activeWorkspace = workspace;
+    state.evidenceLibrary = [];
+    saveEvidenceLibrary();
+    sessionStorage.setItem("litdb.project", state.project);
+    refreshUserState();
+    loadWorkspacePdfs();
+    loadUploads();
+    activateView("papers");
 }
 
 function switchUser() {
@@ -616,12 +849,14 @@ function applyLanguage() {
     });
     renderEvidenceLibrary();
     renderDraftHistory();
+    if (state.uploads.length) renderUploads();
     populateModuleFilter(state.moduleCounts);
 }
 
 function refreshUserState() {
     const hasUser = Boolean(state.userName);
-    const inProject = hasUser && state.project === "aps-review";
+    const inProject = hasUser && Boolean(state.project);
+    const custom = isCustomWorkspace();
     els.loginScreen.classList.toggle("hidden", hasUser);
     els.projectScreen.classList.toggle("hidden", !hasUser || inProject);
     els.appShell.classList.toggle("hidden", !inProject);
@@ -633,9 +868,24 @@ function refreshUserState() {
     els.loginName.value = state.userName;
     els.userChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
     els.projectUserChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
+    document.querySelector("[data-i18n='appEyebrow']").textContent = custom ? t("customWorkspace") : t("appEyebrow");
+    document.querySelector("[data-i18n='appTitle']").textContent = custom ? (state.activeWorkspace?.name || t("customWorkspace")) : t("appTitle");
+    document.querySelector("[data-i18n='reviewReadyPapers']").textContent = custom ? t("pdfLibrary") : t("reviewReadyPapers");
+    document.querySelector("[data-i18n='askAcrossCorpus']").textContent = custom ? t("workspaceQueryPlaceholder") : t("askAcrossCorpus");
+    document.querySelector("[data-i18n='uploadQueue']").textContent = custom ? t("pdfFiles") : t("uploadQueue");
+    document.querySelector("[data-i18n='corpus']").textContent = custom ? t("pdfLibrary") : t("corpus");
+    document.querySelector("[data-i18n='papersMetric']").textContent = custom ? t("pdfFiles") : t("papersMetric");
+    document.querySelector("[data-i18n='tabPapers']").textContent = custom ? t("pdfFiles") : t("tabPapers");
+    els.uploadPmid.classList.toggle("hidden", custom && !activeWorkspaceRequiresPmid());
+    els.priorityFilter.closest(".panel").classList.toggle("hidden", custom);
+    els.paperPagination.classList.toggle("hidden", custom);
+    els.queryInput.placeholder = custom ? t("workspaceQueryPlaceholder") : t("queryPlaceholder");
     els.draftHistoryChip.disabled = !state.userToken;
-    els.signedUpload.textContent = state.userName ? `${t("signedInAs")}: ${state.userName}` : "";
+    els.signedUpload.textContent = custom
+        ? (activeWorkspaceRequiresPmid() ? t("teamWorkspaceHint") : t("workspaceUploadHint"))
+        : (state.userName ? `${t("signedInAs")}: ${state.userName}` : "");
     els.skipLink.href = inProject ? "#main-workspace" : "#project-main";
+    if (state.uploads.length) renderUploads();
     if (inProject) loadDraftHistory();
 }
 
@@ -750,6 +1000,24 @@ function bindUpload() {
         await uploadPdf();
     });
     els.refreshUploads.addEventListener("click", loadUploads);
+    els.myUploadsOnly.checked = state.myUploadsOnly;
+    els.myUploadsOnly.addEventListener("change", () => {
+        state.myUploadsOnly = els.myUploadsOnly.checked;
+        localStorage.setItem("litdb.myUploadsOnly", state.myUploadsOnly ? "1" : "0");
+        state.uploadPage = 1;
+        renderUploads();
+    });
+    els.prevUploadPage.addEventListener("click", () => {
+        if (state.uploadPage <= 1) return;
+        state.uploadPage -= 1;
+        renderUploads();
+    });
+    els.nextUploadPage.addEventListener("click", () => {
+        const totalPages = Math.max(1, Math.ceil(state.filteredUploads.length / state.uploadPageSize));
+        if (state.uploadPage >= totalPages) return;
+        state.uploadPage += 1;
+        renderUploads();
+    });
 }
 
 async function loadHealth() {
@@ -777,6 +1045,10 @@ async function loadHealth() {
 }
 
 async function loadPapers() {
+    if (isCustomWorkspace()) {
+        await loadWorkspacePdfs();
+        return;
+    }
     try {
         const data = await fetchJson("/api/papers");
         state.papers = data.papers || [];
@@ -786,6 +1058,63 @@ async function loadPapers() {
     } catch (error) {
         els.papersBody.innerHTML = `<tr><td colspan="3" class="error-text">${escapeHtml(t("couldNotLoadPapers"))}: ${escapeHtml(error.message)}</td></tr>`;
     }
+}
+
+async function loadWorkspacePdfs() {
+    const workspaceId = activeWorkspaceId();
+    if (!workspaceId) return;
+    try {
+        const data = await fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/pdfs`);
+        state.activeWorkspace = data.workspace || state.activeWorkspace;
+        state.workspaceDocuments = Array.isArray(data.documents) ? data.documents : [];
+        els.metricPapers.textContent = state.workspaceDocuments.length;
+        els.prioritySummary.innerHTML = `<span class="pill">${escapeHtml(state.workspaceDocuments.length)} ${escapeHtml(t("pdfFiles"))}</span>`;
+        renderWorkspacePdfs();
+        renderUploads();
+    } catch (error) {
+        els.papersBody.innerHTML = `<tr><td colspan="3" class="error-text">${escapeHtml(error.message)}</td></tr>`;
+    }
+}
+
+function renderWorkspacePdfs() {
+    const docs = state.workspaceDocuments;
+    els.paperCount.textContent = `${docs.length} ${t("pdfFiles")}`;
+    if (!docs.length) {
+        els.papersBody.innerHTML = `<tr><td colspan="3" class="empty-note">${escapeHtml(t("noWorkspacePdfs"))}</td></tr>`;
+        els.paperDetail.innerHTML = `<p class="empty-note">${escapeHtml(t("noWorkspacePdfs"))}</p>`;
+        return;
+    }
+    els.papersBody.innerHTML = docs.map((doc) => `
+        <tr class="paper-row" data-doc-id="${escapeHtml(doc.id)}">
+            <td>
+                <strong>${escapeHtml(doc.original_filename || doc.filename)}</strong>
+                <span class="paper-meta">${escapeHtml(formatDate(doc.uploaded_at))} · ${escapeHtml(formatSize(doc.file_size))}</span>
+            </td>
+            <td><span class="pdf-status available">PDF</span></td>
+            <td>${escapeHtml(doc.uploaded_by || state.userName || t("missing"))}</td>
+        </tr>
+    `).join("");
+    els.papersBody.querySelectorAll("[data-doc-id]").forEach((row) => {
+        row.addEventListener("click", () => selectWorkspacePdf(row.dataset.docId));
+    });
+    selectWorkspacePdf(docs[0].id);
+}
+
+function selectWorkspacePdf(documentId) {
+    const doc = state.workspaceDocuments.find((item) => item.id === documentId);
+    if (!doc) return;
+    els.paperDetail.innerHTML = `
+        <h3>${escapeHtml(doc.original_filename || doc.filename)}</h3>
+        <p class="paper-meta">${escapeHtml(t("customWorkspace"))} · ${escapeHtml(formatDate(doc.uploaded_at))}</p>
+        <dl class="detail-grid">
+            <div><dt>PDF</dt><dd><span class="pdf-status available">${escapeHtml(t("pdfAvailable"))}</span></dd></div>
+            <div><dt>${escapeHtml(t("signedInAs"))}</dt><dd>${escapeHtml(doc.uploaded_by || t("missing"))}</dd></div>
+            <div><dt>${escapeHtml(t("uploadRecordsUnit"))}</dt><dd>${escapeHtml(formatSize(doc.file_size))}</dd></div>
+        </dl>
+        <div class="detail-actions">
+            <a class="source-link pdf-link" href="${escapeHtml(doc.pdf_url)}" target="_blank" rel="noopener">${escapeHtml(t("openPdf"))}</a>
+        </div>
+    `;
 }
 
 function populateModuleFilter(moduleCounts) {
@@ -800,6 +1129,10 @@ function populateModuleFilter(moduleCounts) {
 }
 
 function applyFilters() {
+    if (isCustomWorkspace()) {
+        renderWorkspacePdfs();
+        return;
+    }
     const query = els.searchInput.value.trim().toLowerCase();
     const priority = els.priorityFilter.value;
     const moduleName = els.moduleFilter.value;
@@ -861,7 +1194,10 @@ function renderPapers() {
     els.papersBody.innerHTML = pagePapers.map((paper) => `
         <tr class="paper-row ${paper.pmid === state.selectedPmid ? "selected" : ""}" data-pmid="${escapeHtml(paper.pmid)}">
             <td>
-                <span class="paper-title">${escapeHtml(paper.title)}</span>
+                <span class="paper-title-line">
+                    <span class="paper-title">${escapeHtml(paper.title)}</span>
+                    ${paper.pdf_upload ? `<span class="pdf-badge">PDF</span>` : ""}
+                </span>
                 <span class="paper-meta">PMID ${escapeHtml(paper.pmid)} · ${escapeHtml(paper.year || "n.d.")} · ${escapeHtml(paper.journal || t("unknownJournal"))}</span>
             </td>
             <td><span class="priority ${escapeHtml(String(paper.priority).toLowerCase())}">${escapeHtml(localizePriority(paper.priority || t("missing")))}</span></td>
@@ -879,6 +1215,7 @@ async function selectPaper(pmid) {
     renderPapers();
     const paper = state.papers.find((item) => item.pmid === pmid);
     if (!paper) return;
+    const pdfUpload = paper.pdf_upload;
 
     els.paperDetail.innerHTML = `
         <h3>${escapeHtml(paper.title)}</h3>
@@ -889,17 +1226,24 @@ async function selectPaper(pmid) {
             <div><dt>${escapeHtml(t("module"))}</dt><dd>${escapeHtml(compactModules(paper.aps_modules))}</dd></div>
             <div><dt>${escapeHtml(t("studyType"))}</dt><dd>${escapeHtml(paper.study_types || t("missing"))}</dd></div>
             <div><dt>DOI</dt><dd>${escapeHtml(paper.doi || t("missing"))}</dd></div>
+            <div><dt>PDF</dt><dd><span class="pdf-status ${pdfUpload ? "available" : ""}">${escapeHtml(pdfUpload ? t("pdfAvailable") : t("pdfMissing"))}</span></dd></div>
         </dl>
-        <a class="source-link" href="/papers/${encodeURIComponent(paper.pmid)}" target="_blank" rel="noopener">${escapeHtml(t("openPaper"))}</a>
+        <div class="detail-actions">
+            <a class="source-link" href="/papers/${encodeURIComponent(paper.pmid)}" target="_blank" rel="noopener">${escapeHtml(t("openPaper"))}</a>
+            ${pdfUpload ? `<a class="source-link pdf-link" href="${escapeHtml(pdfUpload.url)}" target="_blank" rel="noopener">${escapeHtml(t("openPdf"))}</a>` : ""}
+        </div>
         <p class="abstract">${escapeHtml(paper.abstract || t("noAbstract"))}</p>
     `;
 }
 
 async function askPaperQA(question) {
     state.evidenceByKey = {};
-    els.answerPanel.innerHTML = `<p class="empty-note">${escapeHtml(t("searchingCorpus"))}</p>`;
+    els.answerPanel.innerHTML = renderProgressNotice(t("searchingCorpus"));
     try {
-        const result = await fetchJson("/api/paperqa/query", {
+        const endpoint = isCustomWorkspace()
+            ? `/api/workspaces/${encodeURIComponent(activeWorkspaceId())}/paperqa/query`
+            : "/api/paperqa/query";
+        const result = await fetchJson(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ question, k: 10, max_sources: 5 }),
@@ -911,13 +1255,31 @@ async function askPaperQA(question) {
                 <h3>${escapeHtml(result.question)}</h3>
                 ${result.llm ? `<span class="llm-badge">${escapeHtml(formatLlm(result.llm))}</span>` : ""}
             </div>
-            <div class="answer-text">${escapeHtml(result.answer || t("noAnswer"))}</div>
+            <div class="answer-text">${renderAnswerSegments(result.answer_segments, result.answer || t("noAnswer"))}</div>
             ${renderSources(result.contexts || [])}
         `;
         bindEvidenceControls();
     } catch (error) {
         els.answerPanel.innerHTML = `<p class="error-text">${escapeHtml(formatError(error.message))}</p>`;
     }
+}
+
+function renderAnswerSegments(segments, fallback) {
+    if (!Array.isArray(segments) || !segments.length) {
+        return escapeHtml(fallback || "");
+    }
+    return segments.map((segment) => {
+        if (segment.type === "citations") {
+            const citations = Array.isArray(segment.citations) ? segment.citations : [];
+            if (!citations.length) return "";
+            return `<span class="answer-citations">${citations.map((citation) => {
+                const pmid = citation.pmid || "";
+                const href = citation.url || (pmid ? `/papers/${encodeURIComponent(pmid)}` : "#");
+                return `<a class="answer-citation-link" href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(citation.label || `PMID ${pmid}`)}</a>`;
+            }).join("")}</span>`;
+        }
+        return escapeHtml(segment.text || "");
+    }).join("");
 }
 
 function renderSources(contexts) {
@@ -959,14 +1321,27 @@ function renderSource(source, index) {
 }
 
 function renderEvidenceSentence(source, sentence) {
-    const key = `${sentence.pmid || source.pmid}:${sentence.id}`;
-    state.evidenceByKey[key] = { ...sentence, pmid: sentence.pmid || source.pmid, citation: source.citation || source.name || "" };
+    const sourceId = sentence.pmid || source.pmid || sentence.doc_id || source.doc_id || source.name || "source";
+    const key = `${sourceId}:${sentence.id}`;
+    state.evidenceByKey[key] = {
+        ...sentence,
+        pmid: sentence.pmid || source.pmid || "",
+        doc_id: sentence.doc_id || source.doc_id || "",
+        citekey: sentence.citekey || source.citekey || "",
+        source_name: sentence.source_name || source.citation || source.name || "",
+        citation: source.citation || source.name || "",
+    };
     const saved = evidenceLibraryHas(key);
+    const metaLabel = sentence.citekey || source.citekey
+        ? `@${sentence.citekey || source.citekey}`
+        : sentence.pmid || source.pmid
+        ? `PMID ${sentence.pmid || source.pmid}`
+        : (sentence.source_name || source.citation || source.name || t("pdfFiles"));
     return `
         <label class="evidence-card is-highlighted ${saved ? "saved" : ""}">
             <input class="evidence-check" type="checkbox" data-key="${escapeHtml(key)}" ${saved ? "checked" : ""}>
             <span class="evidence-content">
-                <span class="evidence-meta">PMID ${escapeHtml(sentence.pmid || source.pmid || "")} · ${escapeHtml(sentence.section || "")}</span>
+                <span class="evidence-meta">${escapeHtml(metaLabel)} · ${escapeHtml(sentence.section || "")}</span>
                 <span class="evidence-text">${escapeHtml(sentence.text || "")}</span>
                 <span class="evidence-action-row">
                     <span class="evidence-state">${escapeHtml(saved ? t("inEvidenceLibrary") : t("addToEvidenceLibrary"))}</span>
@@ -1068,7 +1443,7 @@ function renderEvidenceLibrary() {
         <div class="library-item">
             <p>${escapeHtml(item.text || "")}</p>
             <div class="library-meta">
-                <span>PMID ${escapeHtml(item.pmid || "")}</span>
+                <span>${escapeHtml(item.citekey ? `@${item.citekey}` : item.pmid ? `PMID ${item.pmid}` : (item.source_name || item.citation || item.doc_id || t("pdfFiles")))}</span>
                 <button class="text-button remove-library-item" type="button" data-key="${escapeHtml(item.key)}">${escapeHtml(t("removeEvidence"))}</button>
             </div>
         </div>
@@ -1295,7 +1670,7 @@ function renderArticleEvidenceChoices(paragraphIndex) {
             <label class="compose-evidence-item">
                 <input class="article-evidence-check" type="checkbox" data-key="${escapeHtml(item.key)}" ${checked ? "checked" : ""}>
                 <span>
-                    <strong>PMID ${escapeHtml(item.pmid || "")}</strong>
+                    <strong>${escapeHtml(item.citekey ? `@${item.citekey}` : item.pmid ? `PMID ${item.pmid}` : (item.source_name || item.citation || item.doc_id || t("pdfFiles")))}</strong>
                     <small>${escapeHtml(item.section || "")}</small>
                     <em>${escapeHtml(item.text || "")}</em>
                 </span>
@@ -1355,7 +1730,7 @@ async function generateArticleDraft() {
         showArticleOutput(`<p class="error-text">${escapeHtml(t("articleNeedEvidence"))}</p>`);
         return;
     }
-    showArticleOutput(`<p class="empty-note">${escapeHtml(t("generatingArticle"))}</p>`);
+    showArticleOutput(renderProgressNotice(t("generatingArticle")));
     try {
         const result = await fetchJson("/api/draft/article", {
             method: "POST",
@@ -1376,10 +1751,21 @@ async function generateArticleDraft() {
                 <span class="llm-badge">${escapeHtml(formatLlm(result.llm))}</span>
             </div>
             <div class="answer-text">${escapeHtml(result.draft || "")}</div>
+            ${renderCitationKeySummary(result.citation_keys)}
         `);
     } catch (error) {
         showArticleOutput(`<p class="error-text">${escapeHtml(formatError(error.message))}</p>`);
     }
+}
+
+function renderCitationKeySummary(keys) {
+    if (!Array.isArray(keys) || !keys.length) return "";
+    return `
+        <div class="citation-key-summary">
+            <strong>${escapeHtml(t("citationKeysUsed"))}</strong>
+            <span>${keys.map((key) => `[@${escapeHtml(key)}]`).join(" ")}</span>
+        </div>
+    `;
 }
 
 function showArticleOutput(html) {
@@ -1400,7 +1786,7 @@ function renderDraftComposer() {
         <label class="compose-evidence-item">
             <input class="compose-evidence-check" type="checkbox" data-key="${escapeHtml(item.key)}" checked>
             <span>
-                <strong>PMID ${escapeHtml(item.pmid || "")}</strong>
+                <strong>${escapeHtml(item.citekey ? `@${item.citekey}` : item.pmid ? `PMID ${item.pmid}` : (item.source_name || item.citation || item.doc_id || t("pdfFiles")))}</strong>
                 <small>${escapeHtml(item.section || "")}</small>
                 <em>${escapeHtml(item.text || "")}</em>
             </span>
@@ -1475,7 +1861,7 @@ async function generateDraftParagraph() {
         return;
     }
     output.classList.remove("hidden");
-    output.innerHTML = `<p class="empty-note">${escapeHtml(t("generatingDraft"))}</p>`;
+    output.innerHTML = renderProgressNotice(t("generatingDraft"));
     try {
         const result = await fetchJson("/api/draft/paragraph", {
             method: "POST",
@@ -1497,6 +1883,7 @@ async function generateDraftParagraph() {
                 <span class="llm-badge">${escapeHtml(formatLlm(result.llm))}</span>
             </div>
             <div class="answer-text">${escapeHtml(result.draft || "")}</div>
+            ${renderCitationKeySummary(result.citation_keys)}
         `;
     } catch (error) {
         output.innerHTML = `<p class="error-text">${escapeHtml(formatError(error.message))}</p>`;
@@ -1507,6 +1894,10 @@ async function uploadPdf() {
     const file = els.uploadFile.files[0];
     const pmid = els.uploadPmid.value.trim();
     const uploaderName = state.userName.trim();
+    if (isCustomWorkspace()) {
+        await uploadWorkspacePdf(file, uploaderName);
+        return;
+    }
     if (!file || !pmid) {
         setUploadMessage(t("uploadMissing"), true);
         return;
@@ -1521,7 +1912,7 @@ async function uploadPdf() {
     formData.append("pmid", pmid);
     formData.append("uploader_name", uploaderName);
 
-    setUploadMessage(t("uploadingPdf"), false);
+    setUploadProgress(t("uploadingPdf"));
     try {
         await fetchJson("/api/upload", { method: "POST", body: formData });
         els.uploadForm.reset();
@@ -1532,7 +1923,36 @@ async function uploadPdf() {
     }
 }
 
-async function loadUploads() {
+async function uploadWorkspacePdf(file, uploaderName) {
+    if (!file) {
+        setUploadMessage(t("uploadMissing"), true);
+        return;
+    }
+    const workspaceId = activeWorkspaceId();
+    if (!workspaceId) return;
+    const requiresPmid = activeWorkspaceRequiresPmid();
+    const pmid = els.uploadPmid.value.trim();
+    if (requiresPmid && !pmid) {
+        setUploadMessage(t("uploadMissing"), true);
+        return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("uploader_name", uploaderName || state.userName);
+    if (requiresPmid) formData.append("pmid", pmid);
+    setUploadProgress(t("uploadingPdf"));
+    try {
+        await fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/pdfs`, { method: "POST", body: formData });
+        els.uploadForm.reset();
+        setUploadMessage(t("uploadSaved"), false, true);
+        await loadWorkspacePdfs();
+        await loadWorkspaces();
+    } catch (error) {
+        setUploadMessage(formatError(error.message), true);
+    }
+}
+
+async function loadUploadsLegacy() {
     try {
         const data = await fetchJson("/api/uploads");
         const uploads = data.uploads || [];
@@ -1602,6 +2022,139 @@ async function loadUploads() {
     }
 }
 
+async function loadUploads() {
+    if (isCustomWorkspace()) {
+        await loadWorkspacePdfs();
+        return;
+    }
+    try {
+        const data = await fetchJson("/api/uploads");
+        state.uploads = (data.uploads || []).slice().sort((a, b) => {
+            const byTime = String(b.uploaded_at || "").localeCompare(String(a.uploaded_at || ""));
+            return byTime || Number(b.id || 0) - Number(a.id || 0);
+        });
+        renderUploads();
+    } catch (error) {
+        els.uploadsList.innerHTML = `<p class="error-text">${escapeHtml(error.message)}</p>`;
+        els.uploadPagination.classList.add("hidden");
+    }
+}
+
+function applyUploadFilters() {
+    const currentUser = state.userName.trim().toLowerCase();
+    state.filteredUploads = state.uploads.filter((upload) => {
+        if (!state.myUploadsOnly) return true;
+        return String(upload.uploader_name || "").trim().toLowerCase() === currentUser;
+    });
+    const totalPages = Math.max(1, Math.ceil(state.filteredUploads.length / state.uploadPageSize));
+    state.uploadPage = Math.min(Math.max(1, state.uploadPage), totalPages);
+}
+
+function renderUploads() {
+    if (isCustomWorkspace()) {
+        renderWorkspaceUploads();
+        return;
+    }
+    applyUploadFilters();
+    if (!state.filteredUploads.length) {
+        els.uploadsList.innerHTML = `<p class="empty-note">${escapeHtml(t("noUploads"))}</p>`;
+        updateUploadPagination();
+        return;
+    }
+
+    const start = (state.uploadPage - 1) * state.uploadPageSize;
+    const pageUploads = state.filteredUploads.slice(start, start + state.uploadPageSize);
+    els.uploadsList.innerHTML = `
+        <div class="upload-record-list">
+            ${pageUploads.map((upload) => `
+                <div class="upload-item">
+                    <div class="upload-info">
+                        <p class="upload-name">${escapeHtml(upload.original_filename || upload.filename)}</p>
+                        <p class="upload-meta">PMID ${escapeHtml(upload.pmid || t("missing"))} · ${escapeHtml(upload.uploader_name || t("missing"))} · ${formatDate(upload.uploaded_at)} · ${formatSize(upload.file_size)}</p>
+                    </div>
+                    <div class="upload-actions">
+                        <span class="status-pill status-${escapeHtml(String(upload.status || "uploaded").toLowerCase().replace(/\s+/g, "-"))}">${escapeHtml(localizeUploadStatus(upload.status || "uploaded"))}</span>
+                        ${upload.pdf_url ? `<a class="icon-button pdf-open-btn" href="${escapeHtml(upload.pdf_url)}" target="_blank" rel="noopener" title="${escapeHtml(t("openPdf"))}" aria-label="${escapeHtml(t("openPdf"))}">PDF</a>` : ""}
+                        <button class="icon-button status-toggle" data-id="${escapeHtml(String(upload.id))}" data-status="${escapeHtml(String(upload.status || "uploaded"))}" title="${escapeHtml(t("toggleStatus"))}" aria-label="${escapeHtml(t("toggleStatus"))}">&#8596;</button>
+                        <button class="icon-button delete-btn" data-id="${escapeHtml(String(upload.id))}" title="${escapeHtml(t("deleteUpload"))}" aria-label="${escapeHtml(t("deleteUpload"))}">&times;</button>
+                    </div>
+                </div>
+            `).join("")}
+        </div>
+    `;
+    updateUploadPagination();
+    bindUploadRecordActions();
+}
+
+function renderWorkspaceUploads() {
+    const docs = state.workspaceDocuments || [];
+    els.uploadPagination.classList.add("hidden");
+    if (!docs.length) {
+        els.uploadsList.innerHTML = `<p class="empty-note">${escapeHtml(t("noWorkspacePdfs"))}</p>`;
+        return;
+    }
+    els.uploadsList.innerHTML = `
+        <div class="upload-record-list">
+            ${docs.map((doc) => `
+                <div class="upload-item">
+                    <div class="upload-info">
+                        <p class="upload-name">${escapeHtml(doc.original_filename || doc.filename)}</p>
+                        <p class="upload-meta">${escapeHtml(doc.uploaded_by || state.userName || t("missing"))} · ${formatDate(doc.uploaded_at)} · ${formatSize(doc.file_size)}</p>
+                    </div>
+                    <div class="upload-actions">
+                        <span class="status-pill status-uploaded">${escapeHtml(localizeUploadStatus(doc.status || "uploaded"))}</span>
+                        <a class="icon-button pdf-open-btn" href="${escapeHtml(doc.pdf_url)}" target="_blank" rel="noopener" title="${escapeHtml(t("openPdf"))}" aria-label="${escapeHtml(t("openPdf"))}">PDF</a>
+                    </div>
+                </div>
+            `).join("")}
+        </div>
+    `;
+}
+
+function updateUploadPagination() {
+    const total = state.filteredUploads.length;
+    const totalPages = Math.max(1, Math.ceil(total / state.uploadPageSize));
+    const start = total ? (state.uploadPage - 1) * state.uploadPageSize + 1 : 0;
+    const end = Math.min(total, state.uploadPage * state.uploadPageSize);
+    els.uploadPagination.classList.toggle("hidden", total <= state.uploadPageSize);
+    els.prevUploadPage.disabled = state.uploadPage <= 1;
+    els.nextUploadPage.disabled = state.uploadPage >= totalPages;
+    els.uploadPageStatus.textContent = `${state.uploadPage} / ${totalPages} · ${start}-${end} / ${total} ${t("uploadRecordsUnit")}`;
+}
+
+function bindUploadRecordActions() {
+    els.uploadsList.querySelectorAll(".delete-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+            const id = Number(btn.dataset.id);
+            if (!confirm(`${t("deleteUploadConfirm")} #${id}?`)) return;
+            try {
+                await fetchJson(`/api/uploads/${id}`, { method: "DELETE" });
+                loadUploads();
+            } catch (err) {
+                alert(`${t("deleteFailed")}: ${err.message}`);
+            }
+        });
+    });
+
+    els.uploadsList.querySelectorAll(".status-toggle").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+            const id = Number(btn.dataset.id);
+            const statusMap = { uploaded: "indexed", indexed: "uploaded" };
+            const newStatus = statusMap[btn.dataset.status] || "uploaded";
+            try {
+                await fetchJson(`/api/uploads/${id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: newStatus }),
+                });
+                loadUploads();
+            } catch (err) {
+                alert(`${t("updateFailed")}: ${err.message}`);
+            }
+        });
+    });
+}
+
 function renderPrioritySummary(counts) {
     const entries = Object.entries(counts || {});
     els.prioritySummary.innerHTML = entries.length
@@ -1637,6 +2190,26 @@ async function fetchJson(url, options) {
 function setUploadMessage(message, isError, isSuccess) {
     els.uploadMessage.textContent = message;
     els.uploadMessage.className = `form-message ${isError ? "error-text" : isSuccess ? "success-text" : ""}`;
+}
+
+function setUploadProgress(message) {
+    els.uploadMessage.innerHTML = renderProgressNotice(message, true);
+    els.uploadMessage.className = "form-message progress-message";
+}
+
+function renderProgressNotice(message, isCompact = false) {
+    const safeMessage = escapeHtml(message);
+    return `
+        <div class="progress-notice ${isCompact ? "compact-progress" : ""}" role="status" aria-live="polite">
+            <div class="progress-copy">
+                <span class="progress-dot" aria-hidden="true"></span>
+                <span>${safeMessage}</span>
+            </div>
+            <div class="pseudo-progress" role="progressbar" aria-label="${safeMessage}">
+                <span></span>
+            </div>
+        </div>
+    `;
 }
 
 function compactModules(value) {
