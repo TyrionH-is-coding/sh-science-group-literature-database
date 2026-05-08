@@ -30,6 +30,10 @@ Use environment variables rather than editing source files:
 
 See `.env.example` for defaults.
 
+## Change Log
+
+Project-level changes are recorded in [CHANGELOG.md](CHANGELOG.md). Update it before pushing user-visible feature, data, or deployment changes.
+
 ## API
 
 - `GET /api/health`

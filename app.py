@@ -276,8 +276,50 @@ def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip().lower()
 
 
+LATEX_SYMBOLS = {
+    r"\alpha": "α",
+    r"\beta": "β",
+    r"\gamma": "γ",
+    r"\delta": "δ",
+    r"\epsilon": "ε",
+    r"\kappa": "κ",
+    r"\lambda": "λ",
+    r"\mu": "μ",
+    r"\pi": "π",
+    r"\sigma": "σ",
+    r"\tau": "τ",
+    r"\phi": "φ",
+    r"\chi": "χ",
+    r"\omega": "ω",
+}
+
+
+def normalize_latex_inline(value: str) -> str:
+    """Make common inline LaTeX fragments readable in rendered article text."""
+
+    def render_math(match: re.Match[str]) -> str:
+        expr = match.group(1)
+        expr = re.sub(r"\\(?:mathrm|text|operatorname)\{([^{}]*)\}", r"\1", expr)
+        expr = re.sub(r"\\(?:mathbf|mathit|mathsf)\{([^{}]*)\}", r"\1", expr)
+        for command, symbol in LATEX_SYMBOLS.items():
+            expr = expr.replace(command, symbol)
+        expr = re.sub(r"\\([A-Za-z]+)", r"\1", expr)
+        expr = expr.replace("{", "").replace("}", "")
+        expr = re.sub(r"\s+", " ", expr).strip()
+        expr = re.sub(r"([A-Za-zΑ-ω])\s+(\d)", r"\1\2", expr)
+        expr = re.sub(r"(\d)\s+([A-Za-zΑ-ω])", r"\1\2", expr)
+        return expr
+
+    cleaned = re.sub(r"\$\s*([^$]+?)\s*\$", render_math, value or "")
+    cleaned = re.sub(r"\(\s+([^()]*?)\s+\)", r"(\1)", cleaned)
+    cleaned = re.sub(r"(?<=[A-Za-z0-9Α-ω])\s+-\s*(?=[A-Za-zΑ-ω])", "-", cleaned)
+    cleaned = re.sub(r"\s+([,.;:!?，。；：！？])", r"\1", cleaned)
+    return cleaned
+
+
 def strip_markdown_inline(value: str) -> str:
-    cleaned = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", value)
+    cleaned = normalize_latex_inline(value)
+    cleaned = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", cleaned)
     cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
     cleaned = re.sub(r"[*_`]+", "", cleaned)
     cleaned = re.sub(r"<[^>]+>", "", cleaned)
@@ -631,6 +673,79 @@ def unique_reference_rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(citekey)
         rows.append({key: item.get(key, "") for key in ("citekey", "citation", "pmid", "doi", "title", "authors", "year", "journal")})
     return rows
+
+
+NATURE_REVIEW_DRAFTING_PROFILE = "nature_review_synthesis_v1"
+
+NATURE_REVIEW_DRAFTING_RULES = """
+Write as a Nature-leaning biomedical review author, but do not imitate a journal house style mechanically.
+
+Core writing task:
+- Produce manuscript prose, not a RAG summary, notes, bullets, or a reference list.
+- Build synthesis across evidence rather than listing papers one by one.
+- Each paragraph must have one controlling idea.
+- For important scientific statements, keep claim, evidence, and boundary visible.
+- State the shared pattern first, then exceptions, uncertainty, study-type limits, or disagreement.
+
+Evidence discipline:
+- Use only the supplied evidence for factual claims.
+- Do not merge two retrieved claims into one stronger claim.
+- Do not upgrade association to causation.
+- Do not imply consensus when evidence is narrow, indirect, or conflicting.
+- If evidence conflicts, write the conflict explicitly rather than smoothing it away.
+- Do not invent mechanisms, citations, PMIDs, DOIs, statistics, sample sizes, trial results, or novelty claims.
+
+Citation discipline:
+- Preserve Pandoc citation keys exactly, for example [@pmid:16420554].
+- Keep each citation key next to the specific clause or sentence it supports.
+- Do not output numbered citations such as [1] or [2].
+- Do not output a bibliography or reference list.
+- Do not invent citation keys.
+
+Style:
+- Prefer precise, cautious academic prose over confident overstatement.
+- Avoid rhetorical questions, bullet points, and conversational phrasing.
+- Avoid em dashes. Use commas, parentheses, or shorter sentences.
+- Keep sentences controlled; split overloaded sentences.
+- Use British spelling in English output.
+- Define abbreviations on first use when the evidence makes the definition clear.
+- Output only the manuscript draft prose.
+""".strip()
+
+APS_REVIEW_CONTEXT_RULES = """
+APS review context:
+- Respect APS review modules when evidence implies them:
+  clinical framing/classification/epidemiology/diagnosis;
+  autoantigens/antibodies/laboratory assays/epitope biology;
+  immunothrombosis/complement/platelets/NETs/coagulation;
+  microvascular disease/organ damage/pregnancy morbidity/pathology;
+  therapeutics/anticoagulation/immunomodulation/trials;
+  future directions/biomarkers/trial design/emerging methods.
+- If a paragraph crosses modules, make the transition explicit.
+""".strip()
+
+
+def draft_style_instruction(language: str) -> str:
+    if language == "Chinese":
+        return (
+            "Write in polished Chinese academic prose suitable for a biomedical review draft. "
+            "Preserve standard English technical terms where appropriate, and preserve citation keys exactly."
+        )
+    return (
+        "Write in polished English biomedical review prose with Nature-leaning restraint, clear logic, "
+        "British spelling, and precise hedging."
+    )
+
+
+def normalize_library_context(value: str) -> str:
+    clean = re.sub(r"[^a-z0-9_-]+", "_", (value or "").strip().lower()).strip("_")
+    return clean if clean in {"aps_review", "general_review"} else "general_review"
+
+
+def context_specific_drafting_rules(library_context: str) -> str:
+    if normalize_library_context(library_context) == "aps_review":
+        return f"\n{APS_REVIEW_CONTEXT_RULES}\n"
+    return ""
 
 
 def markdown_inline_html(
@@ -1848,6 +1963,7 @@ async def api_draft_paragraph(request: Request):
         raise HTTPException(status_code=503, detail="DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured")
 
     language = "Chinese" if str(body.get("lang", "en")).lower().startswith("zh") else "English"
+    library_context = normalize_library_context(str(body.get("library_context", "general_review")))
     instruction = strip_markdown_inline(str(body.get("instruction", ""))).strip()[:1200]
     evidence_lines = "\n".join(
         f"- {item['citation']} {evidence_source_label(item)} [{item['section']}]: {item['text']}"
@@ -1855,12 +1971,11 @@ async def api_draft_paragraph(request: Request):
     )
     instruction_block = f"\nParagraph goal from the user: {instruction}\n" if instruction else "\n"
     prompt = (
-        f"Write one concise {language} review paragraph for a scientific manuscript using only the evidence below.\n"
-        "Do not add claims that are not supported by the selected evidence. "
-        "Keep the tone suitable for a biomedical review article. "
-        "Use only Pandoc citation keys from the selected evidence, for example [@pmid:16420554]. "
-        "Do not output numbered citations like [1], [2], or a reference list. "
-        "Do not invent citation keys.\n"
+        f"Task: write one concise {language} biomedical review paragraph using only the selected evidence.\n"
+        f"{draft_style_instruction(language)}\n\n"
+        f"Writing profile: {NATURE_REVIEW_DRAFTING_PROFILE}\n"
+        f"{NATURE_REVIEW_DRAFTING_RULES}\n"
+        f"{context_specific_drafting_rules(library_context)}"
         f"{instruction_block}\n"
         f"Selected evidence:\n{evidence_lines}"
     )
@@ -1892,6 +2007,8 @@ async def api_draft_paragraph(request: Request):
             "instruction": instruction,
             "lang": str(body.get("lang", "en")),
             "citation_keys": citation_keys,
+            "writing_profile": NATURE_REVIEW_DRAFTING_PROFILE,
+            "library_context": library_context,
         },
     )
     return {
@@ -1967,6 +2084,7 @@ async def api_draft_article(request: Request):
         raise HTTPException(status_code=503, detail="DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured")
 
     language = "Chinese" if str(body.get("lang", "en")).lower().startswith("zh") else "English"
+    library_context = normalize_library_context(str(body.get("library_context", "general_review")))
     paragraph_blocks = []
     for paragraph in clean_paragraphs:
         length_line = f"\nApproximate length: {paragraph['length']}" if paragraph["length"] else ""
@@ -1981,12 +2099,14 @@ async def api_draft_article(request: Request):
         )
 
     prompt = (
-        f"Write a coherent multi-paragraph {language} biomedical review draft using the paragraph plans below.\n"
-        "Treat the plans as an ordered outline. Make transitions between paragraphs explicit and smooth. "
-        "Use only the supplied evidence for factual claims; do not invent unsupported claims. "
-        "Use only Pandoc citation keys from the supplied evidence, for example [@pmid:16420554]. "
-        "Do not output numbered citations like [1], [2], or a reference list. "
-        "Do not invent citation keys. Do not use bullet points unless the user asks for them.\n\n"
+        f"Task: write a coherent multi-paragraph {language} biomedical review draft from the ordered paragraph plans below.\n"
+        f"{draft_style_instruction(language)}\n\n"
+        f"Writing profile: {NATURE_REVIEW_DRAFTING_PROFILE}\n"
+        f"{NATURE_REVIEW_DRAFTING_RULES}\n"
+        f"{context_specific_drafting_rules(library_context)}"
+        "Treat the paragraph plans as an ordered outline. Make transitions between paragraphs explicit and smooth. "
+        "Preserve paragraph order unless the supplied evidence forces a clearer logical sequence. "
+        "Do not add headings unless the user explicitly asks for them.\n\n"
         "Paragraph plans:\n"
         + "\n\n".join(paragraph_blocks)
     )
@@ -2022,6 +2142,8 @@ async def api_draft_article(request: Request):
             "mode": mode,
             "lang": str(body.get("lang", "en")),
             "citation_keys": citation_keys,
+            "writing_profile": NATURE_REVIEW_DRAFTING_PROFILE,
+            "library_context": library_context,
             "paragraphs": [
                 {
                     "instruction": paragraph["instruction"],

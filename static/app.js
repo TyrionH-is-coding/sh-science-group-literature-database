@@ -115,7 +115,7 @@ const i18n = {
         addToEvidenceLibrary: "Add to library",
         inEvidenceLibrary: "In library",
         organizeDraft: "Compose paragraph",
-        draftComposerHint: "Describe what this paragraph should argue, then choose the evidence for the model.",
+        draftComposerHint: "Describe what this paragraph should argue, then choose the evidence for a Nature-style synthesis draft.",
         paragraphBrief: "Paragraph goal",
         paragraphBriefPlaceholder: "For example: summarize why immunothrombosis matters in APS infection risk.",
         evidenceForParagraph: "Evidence for this paragraph",
@@ -123,7 +123,7 @@ const i18n = {
         chooseEvidenceForDraft: "Choose evidence from the library first.",
         articleComposer: "Article Composer",
         articleComposerTitle: "Build a multi-paragraph draft",
-        articleComposerHint: "Arrange selected evidence into paragraph plans, then generate the draft in one pass.",
+        articleComposerHint: "Arrange selected evidence into paragraph plans, then generate a Nature-style review draft in one pass.",
         addParagraph: "Add paragraph",
         removeParagraph: "Remove",
         paragraphLabel: "Paragraph",
@@ -156,7 +156,7 @@ const i18n = {
         guidePaperQATitle: "4. Ask PaperQA",
         guidePaperQAText: "Ask a focused APS question. When PaperQA is configured on the server, cited sentences can be checked and added to the Evidence Library.",
         guideComposerTitle: "5. Compose an article draft",
-        guideComposerText: "Click Compose from the Evidence Library, arrange selected sentences into paragraph plans, set approximate length, then generate a multi-paragraph draft.",
+        guideComposerText: "Click Compose from the Evidence Library, arrange selected sentences into paragraph plans, set approximate length, then generate a citation-key based Nature-style synthesis draft.",
         guideRecordsTitle: "6. Check draft history",
         guideRecordsText: "Generated paragraphs and article drafts are saved under the current user account after successful LLM generation.",
         guideUploadTitle: "7. Upload PDFs",
@@ -323,7 +323,7 @@ const i18n = {
         addToEvidenceLibrary: "加入自选库",
         inEvidenceLibrary: "已加入自选库",
         organizeDraft: "组文章段落",
-        draftComposerHint: "先描述这一段要写什么，再选择交给 AI 的证据。",
+        draftComposerHint: "先描述这一段要写什么，再选择证据，让 AI 按接近 Nature 综述写作的方式综合生成。",
         paragraphBrief: "段落要求",
         paragraphBriefPlaceholder: "例如：总结免疫血栓如何影响 APS 感染风险。",
         evidenceForParagraph: "本段证据",
@@ -331,7 +331,7 @@ const i18n = {
         chooseEvidenceForDraft: "请先从自选库选择证据。",
         articleComposer: "组文章",
         articleComposerTitle: "生成多段文章草稿",
-        articleComposerHint: "把自选库证据分配到不同段落，再一次性交给 AI 生成，让段落之间有承接关系。",
+        articleComposerHint: "把自选库证据分配到不同段落，再一次性交给 AI 按接近 Nature 综述写作的方式生成，让段落之间有承接关系。",
         addParagraph: "添加段落",
         removeParagraph: "删除",
         paragraphLabel: "段落",
@@ -364,7 +364,7 @@ const i18n = {
         guidePaperQATitle: "4. 向 PaperQA 提问",
         guidePaperQAText: "输入具体的 APS 问题。服务器配置好 PaperQA 后，结果中的引用句子可以勾选并加入自选库。",
         guideComposerTitle: "5. 生成文章草稿",
-        guideComposerText: "点击自选库里的“组文章”，把句子分配到不同段落，设置每段大约字数，再一次性生成多段文章草稿。",
+        guideComposerText: "点击自选库里的“组文章”，把句子分配到不同段落，设置每段大约字数，再一次性生成带 citation key 的 Nature 风格综述草稿。",
         guideRecordsTitle: "6. 查看生成记录",
         guideRecordsText: "LLM 成功生成的段落和文章草稿，会保存到当前用户账号下，可以在左侧生成记录中查看。",
         guideUploadTitle: "7. 上传 PDF",
@@ -585,6 +585,10 @@ function workspaceTypeLabel(workspace) {
 
 function activeWorkspaceRequiresPmid() {
     return Boolean(state.activeWorkspace && state.activeWorkspace.requires_pmid);
+}
+
+function draftLibraryContext() {
+    return isCustomWorkspace() ? "general_review" : "aps_review";
 }
 
 function canDeleteWorkspace(workspace) {
@@ -1738,6 +1742,7 @@ async function generateArticleDraft() {
             body: JSON.stringify({
                 mode: "review",
                 lang: state.lang,
+                library_context: draftLibraryContext(),
                 paragraphs,
                 user_token: state.userToken,
                 user_name: state.userName,
@@ -1869,6 +1874,7 @@ async function generateDraftParagraph() {
             body: JSON.stringify({
                 mode: "review",
                 lang: state.lang,
+                library_context: draftLibraryContext(),
                 instruction,
                 evidences,
                 user_token: state.userToken,
