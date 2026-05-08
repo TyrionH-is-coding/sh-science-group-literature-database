@@ -49,6 +49,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger("literature_app")
 
+# Knowhere bridge for automated PDF parsing
+import sys as _sys
+_sys.path.insert(0, str(ROOT / "scripts"))
+try:
+    from knowhere_bridge import (  # type: ignore[import-untyped]
+        submit_parse_job,
+        handle_webhook_callback,
+        verify_webhook_signature,
+    )
+    KNOWHERE_ENABLED = bool(os.environ.get("KNOWHERE_API_KEY", ""))
+    if KNOWHERE_ENABLED:
+        logger.info("Knowhere bridge loaded and enabled")
+except ImportError:
+    KNOWHERE_ENABLED = False
+    logger.info("Knowhere bridge not available (import failed)")
+
+SENTENCE_RE = re.compile(r"[^.!?。！？;；]+(?:[.!?。！？;；]+|$)", re.MULTILINE)
 
 app = FastAPI(
     title="SH Science Group Literature Database",
@@ -153,6 +170,9 @@ def get_api_key() -> str | None:
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     """Parse simple YAML-style key/value frontmatter from prepared Markdown files."""
+    # Strip UTF-8 BOM if present (\ufeff)
+    if text.startswith("\ufeff"):
+        text = text[1:]
     if not text.startswith("---"):
         return {}, text
 
@@ -2072,7 +2092,36 @@ async def api_upload(
     metadata.append(entry)
     save_uploads_metadata(metadata)
     logger.info("Uploaded %s for PMID %s", file.filename, clean_pmid)
-    return {"message": "File uploaded successfully", "entry": entry}
+
+    # Auto-submit to Knowhere for parsing if enabled
+    knowhere_info = None
+    if KNOWHERE_ENABLED and clean_pmid:
+        try:
+            webhook_url = (
+                f"http://localhost:{os.environ.get('PORT', '8081')}/api/knowhere-webhook"
+            )
+            result = submit_parse_job(
+                pmid=clean_pmid,
+                pdf_path=destination,
+                webhook_url=webhook_url,
+            )
+            knowhere_info = {
+                "knowhere_job_id": result.get("job_id"),
+                "knowhere_status": result.get("status"),
+            }
+            logger.info(
+                "Knowhere job submitted for PMID=%s: job_id=%s",
+                clean_pmid, result.get("job_id"),
+            )
+        except Exception as exc:
+            logger.error("Failed to submit Knowhere job for PMID=%s: %s", clean_pmid, exc)
+            knowhere_info = {"knowhere_error": str(exc)}
+
+    return {
+        "message": "File uploaded successfully",
+        "entry": entry,
+        "knowhere": knowhere_info,
+    }
 
 
 @app.get("/api/uploads")
@@ -2172,6 +2221,37 @@ def count_multi_value(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
             clean = value.strip() or "missing"
             counts[clean] = counts.get(clean, 0) + 1
     return counts
+
+
+@app.post("/api/knowhere-webhook")
+async def api_knowhere_webhook(request: Request):
+    """
+    Webhook endpoint for Knowhere to call when a parsing job completes.
+    """
+    if not KNOWHERE_ENABLED:
+        raise HTTPException(status_code=404, detail="Knowhere not configured")
+
+    payload_body = await request.body()
+
+    # Verify signature if secret is configured
+    signature = request.headers.get("X-Knowhere-Signature", "")
+    if signature:
+        if not verify_webhook_signature(payload_body, signature):
+            logger.warning("Knowhere webhook signature mismatch")
+            raise HTTPException(status_code=401, detail="Invalid signature")
+
+    try:
+        payload = json.loads(payload_body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    try:
+        result = handle_webhook_callback(payload)
+        logger.info("Knowhere webhook result: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("Knowhere webhook handler error: %s", exc, exc_info=True)
+        return {"status": "error", "message": str(exc)}
 
 
 if __name__ == "__main__":

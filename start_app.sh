@@ -9,8 +9,10 @@ export PAPERQA_CORPUS_DIR="${PAPERQA_CORPUS_DIR:-paperqa_import/high_medium_read
 export PAPER_UPLOAD_DIR="${PAPER_UPLOAD_DIR:-uploads}"
 export MAX_UPLOAD_MB="${MAX_UPLOAD_MB:-50}"
 
-# Load API key from .bashrc (non-interactive shells don't source it)
+# Load API keys from .bashrc (non-interactive shells don't source it)
 eval "$(grep -E '^export DEEPSEEK_API_KEY=' ~/.bashrc 2>/dev/null || true)"
+eval "$(grep -E '^export KNOWHERE_API_KEY=' ~/.bashrc 2>/dev/null || true)"
+eval "$(grep -E '^export KNOWHERE_WEBHOOK_SECRET=' ~/.bashrc 2>/dev/null || true)"
 
 if [ -z "${DEEPSEEK_API_KEY:-${PAPERQA_API_KEY:-}}" ]; then
     echo "WARNING: DEEPSEEK_API_KEY or PAPERQA_API_KEY is not set. PaperQA queries will be unavailable."
