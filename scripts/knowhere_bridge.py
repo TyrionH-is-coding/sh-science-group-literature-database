@@ -347,7 +347,7 @@ def handle_webhook_callback(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
     # Write to corpus
-    save_paper_to_corpus(pmid, markdown_content)
+    md_path = save_paper_to_corpus(pmid, markdown_content)
 
     # Update upload metadata
     _update_upload_entry(pmid, {
@@ -363,7 +363,7 @@ def handle_webhook_callback(payload: dict[str, Any]) -> dict[str, Any]:
         shutil.rmtree(extract_dir, ignore_errors=True)
 
     logger.info("Knowhere parsing complete for PMID=%s", pmid)
-    return {"status": "ok", "pmid": pmid, "job_id": job_id}
+    return {"status": "ok", "pmid": pmid, "job_id": job_id, "corpus_path": str(md_path)}
 
 
 def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool:

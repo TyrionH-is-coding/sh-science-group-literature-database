@@ -10,6 +10,7 @@ const state = {
     uploadPage: 1,
     uploadPageSize: 20,
     myUploadsOnly: localStorage.getItem("litdb.myUploadsOnly") === "1",
+    selectedUploadIds: new Set(),
     userName: localStorage.getItem("litdb.userName") || "",
     userToken: localStorage.getItem("litdb.userToken") || "",
     userId: localStorage.getItem("litdb.userId") || "",
@@ -18,6 +19,11 @@ const state = {
     customWorkspaces: [],
     workspaceDocuments: [],
     activeWorkspace: null,
+    writingStep: Number(sessionStorage.getItem("litdb.writingStep") || 1),
+    manuscriptOutline: loadManuscriptOutline(),
+    activeOutlineId: "",
+    outlineRetrieval: {},
+    writingBlueprint: localStorage.getItem("litdb.writingBlueprint") || "",
     evidenceByKey: {},
     evidenceLibrary: loadEvidenceLibrary(),
     draftHistory: [],
@@ -124,6 +130,48 @@ const i18n = {
         articleComposer: "Article Composer",
         articleComposerTitle: "Build a multi-paragraph draft",
         articleComposerHint: "Arrange selected evidence into paragraph plans, then generate a Nature-style review draft in one pass.",
+        stepOutline: "Outline",
+        stepRetrieve: "Retrieve",
+        stepEvidence: "Evidence",
+        stepBlueprint: "Blueprint",
+        stepDraft: "Draft",
+        stepPolish: "Review",
+        previousStep: "Previous step",
+        confirmNextStep: "Confirm next",
+        generateDraftStep: "Generate draft",
+        writingStageOutline: "Step 1: import and confirm the manuscript outline before retrieval.",
+        writingStageRetrieve: "Step 2: review each section query and retrieve candidate evidence.",
+        writingStageEvidence: "Step 3: choose the evidence that should enter writing. Only checked evidence is confirmed.",
+        writingStageBlueprint: "Step 4: edit the global blueprint before paragraph drafting.",
+        writingStageDraft: "Step 5: check paragraph plans, word counts, and assigned evidence before generating.",
+        writingStagePolish: "Step 6: review the generated draft. Later this step can run full-text polishing and export.",
+        outlineRequired: "Import an outline before continuing.",
+        evidenceRequired: "Confirm at least one evidence sentence before continuing.",
+        blueprintPanel: "Writing blueprint",
+        blueprintTitle: "Confirm the manuscript logic",
+        blueprintHint: "Edit the global storyline before paragraph generation. This is the control layer that keeps sections coherent.",
+        generateBlueprint: "Regenerate blueprint",
+        blueprintEmpty: "No confirmed evidence yet. Confirm evidence first.",
+        blueprintConfirmed: "Blueprint confirmed. Paragraph plans were prepared.",
+        importOutline: "Import outline",
+        clearOutline: "Clear outline",
+        outlinePanel: "Manuscript outline",
+        outlinePanelTitle: "Sections",
+        outlineEmpty: "Import a Markdown outline to plan section-level retrieval.",
+        outlineDetailEmpty: "Select a section to build a retrieval query and assign evidence.",
+        outlineImported: "Outline imported.",
+        outlineCleared: "Outline cleared.",
+        outlineImportFailed: "Could not read outline.",
+        outlineSectionNotes: "Existing notes",
+        outlineRetrievalQuery: "Retrieval question",
+        outlineQueryPlaceholder: "The section title will be converted into a PaperQA retrieval question.",
+        retrieveSectionEvidence: "Retrieve evidence",
+        addSectionParagraph: "Add as paragraph",
+        addSectionEvidenceParagraph: "Add paragraph with selected evidence",
+        noSectionEvidence: "No retrieved evidence yet.",
+        sectionEvidence: "Retrieved evidence",
+        addEvidenceToLibrary: "Add to Evidence Library",
+        addedEvidenceToLibrary: "Added to Evidence Library.",
         addParagraph: "Add paragraph",
         removeParagraph: "Remove",
         paragraphLabel: "Paragraph",
@@ -131,6 +179,10 @@ const i18n = {
         paragraphLengthPlaceholder: "e.g. 180 words",
         generateArticle: "Generate article",
         generatedArticle: "Generated article",
+        editableDraftHint: "Edit the generated text directly here. Citation keys are kept as plain text for later rendering.",
+        saveDraftEdit: "Save edit",
+        draftEditSaved: "Edit saved.",
+        draftEditEmpty: "Draft text cannot be empty.",
         generatingArticle: "Generating the article from paragraph plans...",
         citationKeysUsed: "Citation keys",
         articleNeedEvidence: "Assign evidence to at least one paragraph.",
@@ -179,6 +231,12 @@ const i18n = {
         manualPdfs: "Manual PDFs",
         uploadQueue: "Upload queue",
         myUploadsOnly: "Only mine",
+        selectVisibleUploads: "Select page",
+        clearUploadSelection: "Clear",
+        deleteSelectedUploads: "Delete selected",
+        selectedUploads: "selected",
+        batchDeleteConfirm: "Delete selected upload records and PDF files?",
+        batchDeleteSuccess: "Selected upload records deleted.",
         uploadRecordsUnit: "records",
         refresh: "Refresh",
         selectedPaper: "Selected Paper",
@@ -332,6 +390,48 @@ const i18n = {
         articleComposer: "组文章",
         articleComposerTitle: "生成多段文章草稿",
         articleComposerHint: "把自选库证据分配到不同段落，再一次性交给 AI 按接近 Nature 综述写作的方式生成，让段落之间有承接关系。",
+        stepOutline: "大纲",
+        stepRetrieve: "检索",
+        stepEvidence: "证据",
+        stepBlueprint: "蓝图",
+        stepDraft: "草稿",
+        stepPolish: "审阅",
+        previousStep: "上一步",
+        confirmNextStep: "确认下一步",
+        generateDraftStep: "生成草稿",
+        writingStageOutline: "第 1 步：导入并确认文章大纲，然后再进入检索。",
+        writingStageRetrieve: "第 2 步：逐节检查检索问题，并检索候选证据。",
+        writingStageEvidence: "第 3 步：勾选真正要进入写作的证据。只有勾选后的证据会被确认。",
+        writingStageBlueprint: "第 4 步：编辑全文写作蓝图，确认整体主线和章节承接。",
+        writingStageDraft: "第 5 步：检查段落计划、字数和证据分配，然后生成草稿。",
+        writingStagePolish: "第 6 步：审阅生成结果。后续这里可以接全文润色和导出。",
+        outlineRequired: "请先导入文章大纲。",
+        evidenceRequired: "请至少确认一条证据后再继续。",
+        blueprintPanel: "写作蓝图",
+        blueprintTitle: "确认文章逻辑",
+        blueprintHint: "先修改全文主线，再生成段落。这里负责保证各节之间统一和连贯。",
+        generateBlueprint: "重新生成蓝图",
+        blueprintEmpty: "还没有确认的证据。请先确认证据。",
+        blueprintConfirmed: "蓝图已确认，段落计划已生成。",
+        importOutline: "导入大纲",
+        clearOutline: "清空大纲",
+        outlinePanel: "文章大纲",
+        outlinePanelTitle: "章节",
+        outlineEmpty: "导入 Markdown 大纲后，可以按章节组织检索。",
+        outlineDetailEmpty: "选择一个章节，生成检索问题并分配证据。",
+        outlineImported: "大纲已导入。",
+        outlineCleared: "大纲已清空。",
+        outlineImportFailed: "无法读取大纲。",
+        outlineSectionNotes: "已有提示",
+        outlineRetrievalQuery: "检索问题",
+        outlineQueryPlaceholder: "系统会根据章节标题生成 PaperQA 检索问题。",
+        retrieveSectionEvidence: "检索证据",
+        addSectionParagraph: "加入段落计划",
+        addSectionEvidenceParagraph: "用所选证据加入段落",
+        noSectionEvidence: "还没有检索到证据。",
+        sectionEvidence: "检索到的证据",
+        addEvidenceToLibrary: "加入自选库",
+        addedEvidenceToLibrary: "已加入自选库。",
         addParagraph: "添加段落",
         removeParagraph: "删除",
         paragraphLabel: "段落",
@@ -339,6 +439,10 @@ const i18n = {
         paragraphLengthPlaceholder: "例如：180 字",
         generateArticle: "生成文章",
         generatedArticle: "生成文章",
+        editableDraftHint: "可以直接在这里修改生成文本。引用键会以纯文本保留，方便后续统一渲染。",
+        saveDraftEdit: "保存修改",
+        draftEditSaved: "修改已保存。",
+        draftEditEmpty: "草稿不能为空。",
         generatingArticle: "正在根据段落计划生成文章...",
         citationKeysUsed: "引用键",
         articleNeedEvidence: "请至少给一个段落分配证据。",
@@ -387,6 +491,12 @@ const i18n = {
         manualPdfs: "人工 PDF",
         uploadQueue: "上传队列",
         myUploadsOnly: "只看我的记录",
+        selectVisibleUploads: "选择本页",
+        clearUploadSelection: "清空选择",
+        deleteSelectedUploads: "删除所选",
+        selectedUploads: "条已选",
+        batchDeleteConfirm: "删除选中的上传记录和 PDF 文件？",
+        batchDeleteSuccess: "已删除选中的上传记录。",
         uploadRecordsUnit: "条记录",
         refresh: "刷新",
         selectedPaper: "选中文献",
@@ -528,12 +638,28 @@ const els = {
     uploadsList: document.getElementById("uploads-list"),
     refreshUploads: document.getElementById("refresh-uploads"),
     myUploadsOnly: document.getElementById("my-uploads-only"),
+    uploadSelectionCount: document.getElementById("upload-selection-count"),
+    selectVisibleUploads: document.getElementById("select-visible-uploads"),
+    clearUploadSelection: document.getElementById("clear-upload-selection"),
+    deleteSelectedUploads: document.getElementById("delete-selected-uploads"),
     uploadPagination: document.getElementById("upload-pagination"),
     prevUploadPage: document.getElementById("prev-upload-page"),
     nextUploadPage: document.getElementById("next-upload-page"),
     uploadPageStatus: document.getElementById("upload-page-status"),
     backToWorkspace: document.getElementById("back-to-workspace"),
     backFromHistory: document.getElementById("back-from-history"),
+    outlineFile: document.getElementById("outline-file"),
+    clearOutline: document.getElementById("clear-outline"),
+    outlineCount: document.getElementById("outline-count"),
+    outlineList: document.getElementById("outline-list"),
+    outlineDetail: document.getElementById("outline-detail"),
+    writingStepper: document.getElementById("writing-stepper"),
+    writingStageNote: document.getElementById("writing-stage-note"),
+    writingPrevStep: document.getElementById("writing-prev-step"),
+    writingNextStep: document.getElementById("writing-next-step"),
+    blueprintPanel: document.getElementById("blueprint-panel"),
+    blueprintText: document.getElementById("blueprint-text"),
+    generateBlueprint: document.getElementById("generate-blueprint"),
     addParagraph: document.getElementById("add-paragraph"),
     generateArticle: document.getElementById("generate-article"),
     articleParagraphs: document.getElementById("article-paragraphs"),
@@ -853,6 +979,8 @@ function applyLanguage() {
     });
     renderEvidenceLibrary();
     renderDraftHistory();
+    renderManuscriptOutline();
+    renderWritingFlow();
     if (state.uploads.length) renderUploads();
     populateModuleFilter(state.moduleCounts);
 }
@@ -967,7 +1095,7 @@ function bindEvidenceLibrary() {
         syncEvidenceCards();
         renderEvidenceLibrary();
     });
-    els.composeButton.addEventListener("click", openArticleComposer);
+    els.composeButton.addEventListener("click", () => openArticleComposer(true));
 }
 
 function handleStorageUpdate(event) {
@@ -989,8 +1117,33 @@ function handleFocusRefresh() {
 
 function bindArticleComposer() {
     els.backToWorkspace.addEventListener("click", closeArticleComposer);
+    els.outlineFile.addEventListener("change", importOutlineFile);
+    els.clearOutline.addEventListener("click", clearManuscriptOutline);
+    els.writingPrevStep.addEventListener("click", previousWritingStep);
+    els.writingNextStep.addEventListener("click", confirmWritingStep);
+    els.generateBlueprint.addEventListener("click", () => {
+        state.writingBlueprint = buildWritingBlueprint();
+        saveWritingBlueprint();
+        renderWritingFlow();
+    });
+    els.writingStepper.querySelectorAll(".writing-step").forEach((button) => {
+        button.addEventListener("click", () => {
+            const requestedStep = Number(button.dataset.step || 1);
+            if (requestedStep > state.writingStep) return;
+            state.writingStep = requestedStep;
+            saveWritingStep();
+            renderWritingFlow();
+        });
+    });
     els.addParagraph.addEventListener("click", () => addArticleParagraph());
-    els.generateArticle.addEventListener("click", generateArticleDraft);
+    els.generateArticle.addEventListener("click", async () => {
+        const ok = await generateArticleDraft();
+        if (ok) {
+            state.writingStep = 6;
+            saveWritingStep();
+            renderWritingFlow();
+        }
+    });
 }
 
 function bindDraftHistoryPage() {
@@ -1011,6 +1164,12 @@ function bindUpload() {
         state.uploadPage = 1;
         renderUploads();
     });
+    els.selectVisibleUploads.addEventListener("click", selectVisibleUploads);
+    els.clearUploadSelection.addEventListener("click", () => {
+        state.selectedUploadIds.clear();
+        renderUploads();
+    });
+    els.deleteSelectedUploads.addEventListener("click", deleteSelectedUploads);
     els.prevUploadPage.addEventListener("click", () => {
         if (state.uploadPage <= 1) return;
         state.uploadPage -= 1;
@@ -1428,10 +1587,460 @@ function saveEvidenceLibrary() {
     localStorage.setItem("litdb.evidenceLibrary", JSON.stringify(state.evidenceLibrary.slice(0, 60)));
 }
 
+function loadManuscriptOutline() {
+    try {
+        const outline = JSON.parse(localStorage.getItem("litdb.manuscriptOutline") || "[]");
+        return Array.isArray(outline) ? outline : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveManuscriptOutline() {
+    localStorage.setItem("litdb.manuscriptOutline", JSON.stringify(state.manuscriptOutline.slice(0, 120)));
+}
+
+function saveWritingStep() {
+    state.writingStep = Math.min(6, Math.max(1, Number(state.writingStep || 1)));
+    sessionStorage.setItem("litdb.writingStep", String(state.writingStep));
+}
+
+function saveWritingBlueprint() {
+    localStorage.setItem("litdb.writingBlueprint", state.writingBlueprint || "");
+}
+
+function showWritingMessage(message, isError = true) {
+    showArticleOutput(`<p class="${isError ? "error-text" : "success-text"}">${escapeHtml(message)}</p>`);
+}
+
+function parseMarkdownOutline(text) {
+    const withoutFrontmatter = String(text || "").replace(/^---[\s\S]*?---\s*/, "");
+    let lines = withoutFrontmatter.split(/\r?\n/);
+    const outlineStart = lines.findIndex((line) => /^##\s+Article Outline\s*$/i.test(line.trim()));
+    if (outlineStart >= 0) {
+        const nextMajor = lines.findIndex((line, index) => index > outlineStart && /^##\s+/.test(line.trim()));
+        lines = lines.slice(outlineStart + 1, nextMajor > outlineStart ? nextMajor : undefined);
+    }
+    const sections = [];
+    let current = null;
+    for (const line of lines) {
+        const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+        if (match) {
+            if (current) sections.push(current);
+            current = {
+                id: `outline-${sections.length + 1}-${Date.now()}`,
+                level: match[1].length,
+                title: match[2].replace(/\s+#+$/, "").trim(),
+                notes: [],
+            };
+        } else if (current && line.trim()) {
+            current.notes.push(line.trim());
+        }
+    }
+    if (current) sections.push(current);
+    return sections
+        .filter((section) => section.title && !/^article outline$/i.test(section.title))
+        .map((section, index) => ({
+            ...section,
+            id: `outline-${index + 1}-${slugifyForId(section.title)}`,
+            notes: section.notes.join("\n").slice(0, 1200),
+        }));
+}
+
+function slugifyForId(value) {
+    return String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40) || "section";
+}
+
+async function importOutlineFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+        const text = await file.text();
+        const outline = parseMarkdownOutline(text);
+        if (!outline.length) throw new Error("No headings found");
+        state.manuscriptOutline = outline;
+        state.activeOutlineId = outline[0].id;
+        state.outlineRetrieval = {};
+        state.writingStep = 1;
+        saveManuscriptOutline();
+        saveWritingStep();
+        renderManuscriptOutline();
+        renderWritingFlow();
+        showArticleOutput(`<p class="success-text">${escapeHtml(t("outlineImported"))}</p>`);
+    } catch (error) {
+        showArticleOutput(`<p class="error-text">${escapeHtml(t("outlineImportFailed"))}: ${escapeHtml(formatError(error.message))}</p>`);
+    } finally {
+        event.target.value = "";
+    }
+}
+
+function clearManuscriptOutline() {
+    state.manuscriptOutline = [];
+    state.activeOutlineId = "";
+    state.outlineRetrieval = {};
+    state.writingBlueprint = "";
+    state.writingStep = 1;
+    saveManuscriptOutline();
+    saveWritingBlueprint();
+    saveWritingStep();
+    renderManuscriptOutline();
+    renderWritingFlow();
+    showArticleOutput(`<p class="success-text">${escapeHtml(t("outlineCleared"))}</p>`);
+}
+
+function activeOutlineSection() {
+    return state.manuscriptOutline.find((section) => section.id === state.activeOutlineId) || state.manuscriptOutline[0] || null;
+}
+
+function defaultOutlineQuery(section) {
+    if (!section) return "";
+    const notes = section.notes ? ` Context from the outline: ${section.notes.slice(0, 260)}` : "";
+    return `For a biomedical review section titled "${section.title}", what evidence from the literature should be cited?${notes}`;
+}
+
+function renderManuscriptOutline() {
+    if (!els.outlineList || !els.outlineDetail) return;
+    if (els.outlineCount) els.outlineCount.textContent = String(state.manuscriptOutline.length);
+    if (!state.manuscriptOutline.length) {
+        els.outlineList.innerHTML = `<p class="empty-note">${escapeHtml(t("outlineEmpty"))}</p>`;
+        els.outlineDetail.innerHTML = `<p class="empty-note">${escapeHtml(t("outlineDetailEmpty"))}</p>`;
+        return;
+    }
+    if (!state.activeOutlineId || !state.manuscriptOutline.some((section) => section.id === state.activeOutlineId)) {
+        state.activeOutlineId = state.manuscriptOutline[0].id;
+    }
+    els.outlineList.innerHTML = state.manuscriptOutline.map((section) => `
+        <button class="outline-section-button ${section.id === state.activeOutlineId ? "active" : ""}" type="button" data-id="${escapeHtml(section.id)}" style="--outline-level:${Math.max(0, section.level - 1)}">
+            <span>${escapeHtml(section.title)}</span>
+            <small>H${escapeHtml(String(section.level))}</small>
+        </button>
+    `).join("");
+    els.outlineList.querySelectorAll(".outline-section-button").forEach((button) => {
+        button.addEventListener("click", () => {
+            state.activeOutlineId = button.dataset.id || "";
+            renderManuscriptOutline();
+        });
+    });
+    renderOutlineDetail();
+}
+
+const WRITING_STAGE_NOTES = {
+    1: "writingStageOutline",
+    2: "writingStageRetrieve",
+    3: "writingStageEvidence",
+    4: "writingStageBlueprint",
+    5: "writingStageDraft",
+    6: "writingStagePolish",
+};
+
+function renderWritingFlow() {
+    if (!els.writingStepper) return;
+    saveWritingStep();
+    els.writingStepper.querySelectorAll(".writing-step").forEach((button) => {
+        const step = Number(button.dataset.step || 1);
+        button.classList.toggle("active", step === state.writingStep);
+        button.classList.toggle("complete", step < state.writingStep);
+        button.disabled = step > state.writingStep;
+    });
+    if (els.writingStageNote) {
+        els.writingStageNote.textContent = t(WRITING_STAGE_NOTES[state.writingStep] || "writingStageOutline");
+    }
+    els.writingPrevStep.disabled = state.writingStep <= 1;
+    els.writingNextStep.classList.toggle("hidden", state.writingStep >= 6);
+    els.writingNextStep.textContent = state.writingStep === 5 ? t("generateDraftStep") : t("confirmNextStep");
+    const showWorkbench = state.writingStep <= 3;
+    const showBlueprint = state.writingStep === 4;
+    const showParagraphs = state.writingStep === 5;
+    const showOutput = state.writingStep === 6;
+    document.getElementById("manuscript-workbench")?.classList.toggle("hidden", !showWorkbench);
+    els.blueprintPanel.classList.toggle("hidden", !showBlueprint);
+    els.articleParagraphs.classList.toggle("hidden", !showParagraphs);
+    els.generateArticle.classList.toggle("hidden", !showParagraphs);
+    els.addParagraph.classList.toggle("hidden", !showParagraphs);
+    els.articleOutput.classList.toggle("hidden", !showOutput && !els.articleOutput.innerHTML.trim());
+    if (showBlueprint) {
+        if (!state.writingBlueprint) {
+            state.writingBlueprint = buildWritingBlueprint();
+            saveWritingBlueprint();
+        }
+        els.blueprintText.value = state.writingBlueprint;
+    }
+}
+
+function previousWritingStep() {
+    if (state.writingStep <= 1) return;
+    state.writingStep -= 1;
+    saveWritingStep();
+    renderWritingFlow();
+}
+
+async function confirmWritingStep() {
+    if (state.writingStep === 1 && !state.manuscriptOutline.length) {
+        showWritingMessage(t("outlineRequired"));
+        return;
+    }
+    if (state.writingStep === 3) {
+        const confirmed = confirmOutlineEvidenceSelections();
+        if (!confirmed) {
+            showWritingMessage(t("evidenceRequired"));
+            return;
+        }
+    }
+    if (state.writingStep === 4) {
+        state.writingBlueprint = els.blueprintText.value.trim();
+        saveWritingBlueprint();
+        buildParagraphPlansFromConfirmedEvidence();
+        showWritingMessage(t("blueprintConfirmed"), false);
+    }
+    if (state.writingStep === 5) {
+        const ok = await generateArticleDraft();
+        if (ok) {
+            state.writingStep = 6;
+            saveWritingStep();
+            renderWritingFlow();
+        }
+        return;
+    }
+    state.writingStep = Math.min(6, state.writingStep + 1);
+    saveWritingStep();
+    renderWritingFlow();
+}
+
+function renderOutlineDetail() {
+    const section = activeOutlineSection();
+    if (!section) return;
+    const retrieval = state.outlineRetrieval[section.id] || {};
+    const query = retrieval.query || defaultOutlineQuery(section);
+    const contexts = Array.isArray(retrieval.contexts) ? retrieval.contexts : [];
+    els.outlineDetail.innerHTML = `
+        <div class="outline-detail-head">
+            <div>
+                <p class="panel-label">H${escapeHtml(String(section.level))}</p>
+                <h3>${escapeHtml(section.title)}</h3>
+            </div>
+            <button class="secondary-button small-button" id="outline-add-paragraph" type="button">${escapeHtml(t("addSectionParagraph"))}</button>
+        </div>
+        ${section.notes ? `
+            <div class="outline-notes">
+                <strong>${escapeHtml(t("outlineSectionNotes"))}</strong>
+                <p>${escapeHtml(section.notes)}</p>
+            </div>
+        ` : ""}
+        <label class="field-label" for="outline-query">${escapeHtml(t("outlineRetrievalQuery"))}</label>
+        <textarea id="outline-query" class="query-input compact-query" placeholder="${escapeHtml(t("outlineQueryPlaceholder"))}">${escapeHtml(query)}</textarea>
+        <div class="outline-actions">
+            <button class="primary-button small-button" id="outline-retrieve" type="button">${escapeHtml(t("retrieveSectionEvidence"))}</button>
+            <button class="secondary-button small-button" id="outline-add-evidence-paragraph" type="button" ${contexts.length ? "" : "disabled"}>${escapeHtml(t("addSectionEvidenceParagraph"))}</button>
+        </div>
+        <div class="outline-evidence-panel">
+            <div class="compose-evidence-head">
+                <span>${escapeHtml(t("sectionEvidence"))}</span>
+                <span>${contexts.length}</span>
+            </div>
+            <div class="compose-evidence-list outline-evidence-list">
+                ${contexts.length ? contexts.map((context, index) => renderOutlineEvidenceChoice(context, index)).join("") : `<p class="empty-note">${escapeHtml(t("noSectionEvidence"))}</p>`}
+            </div>
+        </div>
+    `;
+    document.getElementById("outline-add-paragraph")?.addEventListener("click", () => {
+        addArticleParagraph({ instruction: section.title, length: "" });
+    });
+    document.getElementById("outline-retrieve")?.addEventListener("click", () => retrieveOutlineEvidence(section));
+    document.getElementById("outline-add-evidence-paragraph")?.addEventListener("click", () => {
+        const selectedKeys = selectedOutlineEvidenceKeys(section.id);
+        const contexts = (state.outlineRetrieval[section.id] || {}).contexts || [];
+        contexts
+            .filter((item) => selectedKeys.includes(item.key))
+            .forEach((item) => {
+                if (!evidenceLibraryHas(item.key)) state.evidenceLibrary.push(item);
+            });
+        saveEvidenceLibrary();
+        renderEvidenceLibrary();
+        addArticleParagraph({ instruction: section.title, evidenceKeys: selectedKeys });
+    });
+    els.outlineDetail.querySelectorAll(".outline-add-library").forEach((button) => {
+        button.addEventListener("click", () => addOutlineEvidenceToLibrary(section.id, Number(button.dataset.index)));
+    });
+    els.outlineDetail.querySelectorAll(".outline-evidence-check").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+            const current = state.outlineRetrieval[section.id] || {};
+            current.selectedKeys = selectedOutlineEvidenceKeys(section.id, true);
+            state.outlineRetrieval[section.id] = current;
+        });
+    });
+}
+
+function renderOutlineEvidenceChoice(context, index) {
+    const key = context.key || outlineEvidenceKey(context, index);
+    const section = activeOutlineSection();
+    const selectedKeys = section ? (state.outlineRetrieval[section.id] || {}).selectedKeys : null;
+    const checked = !Array.isArray(selectedKeys) || selectedKeys.includes(key);
+    return `
+        <label class="compose-evidence-item outline-evidence-item">
+            <input class="outline-evidence-check" type="checkbox" data-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
+            <span>
+                <strong>${escapeHtml(context.citekey ? `@${context.citekey}` : context.pmid ? `PMID ${context.pmid}` : (context.name || t("pdfFiles")))}</strong>
+                <small>${escapeHtml(context.citation || context.name || "")}</small>
+                <em>${escapeHtml(context.text || "")}</em>
+            </span>
+            <button class="text-button outline-add-library" type="button" data-index="${escapeHtml(String(index))}">${escapeHtml(t("addEvidenceToLibrary"))}</button>
+        </label>
+    `;
+}
+
+function outlineEvidenceKey(context, index) {
+    const source = context.pmid || context.name || context.citation || "source";
+    return `outline:${source}:${index}:${String(context.text || "").slice(0, 32)}`;
+}
+
+function normalizeOutlineContext(context, index) {
+    const key = outlineEvidenceKey(context, index);
+    return {
+        key,
+        id: context.id || key,
+        pmid: context.pmid || "",
+        citekey: context.citekey || (context.pmid ? `pmid:${context.pmid}` : ""),
+        section: context.section || "",
+        text: stripDisplayLineReferencesClient(context.text || ""),
+        citation: context.citation || context.name || "",
+        url: context.url || (context.pmid ? `/papers/${encodeURIComponent(context.pmid)}` : ""),
+        source_name: context.name || "",
+    };
+}
+
+function stripDisplayLineReferencesClient(text) {
+    return String(text || "")
+        .replace(/\s*\(?pmid[_:\s-]*\d+\s+lines?\s+\d+(?:\s*[-–]\s*\d+)?\)?/gi, "")
+        .replace(/\s*\(?lines?\s+\d+(?:\s*[-–]\s*\d+)?\)?/gi, "")
+        .trim();
+}
+
+async function retrieveOutlineEvidence(section) {
+    const queryNode = document.getElementById("outline-query");
+    const question = (queryNode?.value || defaultOutlineQuery(section)).trim();
+    if (!question) return;
+    state.outlineRetrieval[section.id] = { query: question, contexts: [] };
+    els.outlineDetail.querySelector(".outline-evidence-list").innerHTML = renderProgressNotice(t("searchingCorpus"));
+    try {
+        const endpoint = isCustomWorkspace()
+            ? `/api/workspaces/${encodeURIComponent(activeWorkspaceId())}/paperqa/query`
+            : "/api/query";
+        const result = await fetchJson(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question, k: 10, max_sources: 8 }),
+        });
+        const contexts = (result.contexts || []).map(normalizeOutlineContext);
+        state.outlineRetrieval[section.id] = { query: question, contexts, selectedKeys: contexts.map((item) => item.key) };
+        renderLlmInfo({ paperqa: result.llm, draft: result.draft_llm });
+        renderOutlineDetail();
+    } catch (error) {
+        state.outlineRetrieval[section.id] = { query: question, contexts: [] };
+        els.outlineDetail.querySelector(".outline-evidence-list").innerHTML = `<p class="error-text">${escapeHtml(formatError(error.message))}</p>`;
+    }
+}
+
+function selectedOutlineEvidenceKeys(sectionId, forceDom = false) {
+    const contexts = (state.outlineRetrieval[sectionId] || {}).contexts || [];
+    const stored = (state.outlineRetrieval[sectionId] || {}).selectedKeys;
+    if (!forceDom && state.activeOutlineId !== sectionId && Array.isArray(stored)) {
+        return stored.filter((key) => contexts.some((context) => context.key === key));
+    }
+    return Array.from(els.outlineDetail.querySelectorAll(".outline-evidence-check:checked"))
+        .map((checkbox) => checkbox.dataset.key)
+        .filter(Boolean)
+        .filter((key) => contexts.some((context) => context.key === key));
+}
+
+function addOutlineEvidenceToLibrary(sectionId, index) {
+    const contexts = (state.outlineRetrieval[sectionId] || {}).contexts || [];
+    const item = contexts[index];
+    if (!item) return;
+    if (!evidenceLibraryHas(item.key)) {
+        state.evidenceLibrary.push(item);
+        saveEvidenceLibrary();
+        renderEvidenceLibrary();
+    }
+    showArticleOutput(`<p class="success-text">${escapeHtml(t("addedEvidenceToLibrary"))}</p>`);
+}
+
+function confirmedOutlineEvidenceMap() {
+    return state.manuscriptOutline.map((section) => {
+        const retrieval = state.outlineRetrieval[section.id] || {};
+        const contexts = Array.isArray(retrieval.contexts) ? retrieval.contexts : [];
+        const selectedKeys = selectedOutlineEvidenceKeys(section.id);
+        return {
+            section,
+            query: retrieval.query || defaultOutlineQuery(section),
+            evidences: contexts.filter((item) => selectedKeys.includes(item.key)),
+        };
+    }).filter((item) => item.evidences.length);
+}
+
+function confirmOutlineEvidenceSelections() {
+    const confirmed = confirmedOutlineEvidenceMap();
+    if (!confirmed.length) return false;
+    for (const group of confirmed) {
+        for (const item of group.evidences) {
+            if (!evidenceLibraryHas(item.key)) {
+                state.evidenceLibrary.push({ ...item, section: group.section.title });
+            }
+        }
+    }
+    saveEvidenceLibrary();
+    renderEvidenceLibrary();
+    return true;
+}
+
+function buildWritingBlueprint() {
+    const confirmed = confirmedOutlineEvidenceMap();
+    if (!confirmed.length) return t("blueprintEmpty");
+    const lines = [
+        "# Manuscript blueprint",
+        "",
+        "## Global storyline",
+        "- Define the central claim that connects the confirmed sections.",
+        "- Keep mechanistic claims tied to cited evidence and avoid unsupported clinical conclusions.",
+        "- Use citation keys in the final prose and preserve the section order unless the logic requires a clearer transition.",
+        "",
+        "## Section plan",
+    ];
+    for (const group of confirmed) {
+        const citeKeys = group.evidences
+            .map((item) => item.citekey || (item.pmid ? `pmid:${item.pmid}` : ""))
+            .filter(Boolean);
+        lines.push("");
+        lines.push(`### ${group.section.title}`);
+        lines.push(`- Function: explain how this section advances the review argument.`);
+        lines.push(`- Evidence count: ${group.evidences.length}`);
+        if (citeKeys.length) lines.push(`- Citation keys: ${[...new Set(citeKeys)].map((key) => `[@${key}]`).join(" ")}`);
+        lines.push(`- Transition: state how this section connects to the previous and next section.`);
+    }
+    return lines.join("\n");
+}
+
+function buildParagraphPlansFromConfirmedEvidence() {
+    const confirmed = confirmedOutlineEvidenceMap();
+    if (!confirmed.length) return false;
+    els.articleParagraphs.innerHTML = "";
+    for (const group of confirmed) {
+        const evidenceKeys = group.evidences.map((item) => item.key);
+        addArticleParagraph({
+            instruction: `${group.section.title}\n\nBlueprint guidance:\n${state.writingBlueprint || buildWritingBlueprint()}`,
+            evidenceKeys,
+        });
+    }
+    return true;
+}
+
 function renderEvidenceLibrary() {
     if (!els.libraryList) return;
     els.libraryCount.textContent = String(state.evidenceLibrary.length);
-    els.composeButton.disabled = !state.evidenceLibrary.length;
+    els.composeButton.disabled = false;
     els.clearLibrary.disabled = !state.evidenceLibrary.length;
     if (!state.evidenceLibrary.length) {
         els.libraryList.innerHTML = `
@@ -1512,7 +2121,13 @@ function renderDraftHistory() {
                         <button class="text-button danger-text-button delete-draft" type="button" data-id="${escapeHtml(item.id)}">${escapeHtml(t("deleteRecord"))}</button>
                     </div>
                 </div>
-                <p>${escapeHtml(draftText)}</p>
+                <div class="editable-draft compact-editable-draft">
+                    <textarea class="draft-editor history-draft-editor" data-id="${escapeHtml(item.id)}">${escapeHtml(draftText)}</textarea>
+                    <div class="draft-editor-actions">
+                        <span class="draft-editor-status"></span>
+                        <button class="secondary-button small-button save-history-draft" type="button" data-id="${escapeHtml(item.id)}">${escapeHtml(t("saveDraftEdit"))}</button>
+                    </div>
+                </div>
             </article>
         `;
     }).join("");
@@ -1521,6 +2136,13 @@ function renderDraftHistory() {
     });
     document.querySelectorAll(".delete-draft").forEach((button) => {
         button.addEventListener("click", () => deleteDraftRecord(button.dataset.id));
+    });
+    document.querySelectorAll(".save-history-draft").forEach((button) => {
+        button.addEventListener("click", () => {
+            const draftBox = button.closest(".editable-draft");
+            const editor = draftBox?.querySelector(".history-draft-editor");
+            saveDraftText(button.dataset.id, editor?.value || "", draftBox?.querySelector(".draft-editor-status"));
+        });
     });
 }
 
@@ -1535,6 +2157,28 @@ async function updateDraftPin(recordId, pinned) {
         await loadDraftHistory();
     } catch (error) {
         window.alert(`${t("updateFailed")}: ${formatError(error.message)}`);
+    }
+}
+
+async function saveDraftText(recordId, draftText, statusNode) {
+    if (!recordId || !state.userToken) return false;
+    const draft = String(draftText || "").trim();
+    if (!draft) {
+        if (statusNode) statusNode.textContent = t("draftEditEmpty");
+        return false;
+    }
+    try {
+        const result = await fetchJson(`/api/drafts/${encodeURIComponent(recordId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_token: state.userToken, draft }),
+        });
+        if (statusNode) statusNode.textContent = t("draftEditSaved");
+        state.draftHistory = state.draftHistory.map((item) => item.id === recordId ? result.draft : item);
+        return true;
+    } catch (error) {
+        if (statusNode) statusNode.textContent = formatError(error.message);
+        return false;
     }
 }
 
@@ -1607,6 +2251,8 @@ function openArticleComposer(force = false) {
     els.skipLink.href = "#article-compose-page";
     els.articleOutput.classList.add("hidden");
     els.articleOutput.innerHTML = "";
+    renderManuscriptOutline();
+    renderWritingFlow();
     if (!els.articleParagraphs.children.length) {
         addArticleParagraph();
         addArticleParagraph();
@@ -1638,9 +2284,9 @@ function closeDraftHistoryPage() {
     els.skipLink.href = "#main-workspace";
 }
 
-function addArticleParagraph() {
+function addArticleParagraph(options = {}) {
     const paragraphIndex = els.articleParagraphs.children.length + 1;
-    const evidenceItems = renderArticleEvidenceChoices(paragraphIndex);
+    const evidenceItems = renderArticleEvidenceChoices(paragraphIndex, options.evidenceKeys || []);
     els.articleParagraphs.insertAdjacentHTML("beforeend", `
         <section class="article-paragraph-card" data-paragraph-id="${Date.now()}-${paragraphIndex}">
             <div class="article-paragraph-head">
@@ -1648,9 +2294,9 @@ function addArticleParagraph() {
                 <button class="text-button remove-paragraph" type="button">${escapeHtml(t("removeParagraph"))}</button>
             </div>
             <label class="field-label">${escapeHtml(t("paragraphBrief"))}</label>
-            <textarea class="query-input compact-query paragraph-goal" placeholder="${escapeHtml(t("paragraphBriefPlaceholder"))}"></textarea>
+            <textarea class="query-input compact-query paragraph-goal" placeholder="${escapeHtml(t("paragraphBriefPlaceholder"))}">${escapeHtml(options.instruction || "")}</textarea>
             <label class="field-label">${escapeHtml(t("paragraphLength"))}</label>
-            <input class="text-input paragraph-length" type="text" inputmode="numeric" placeholder="${escapeHtml(t("paragraphLengthPlaceholder"))}">
+            <input class="text-input paragraph-length" type="text" inputmode="numeric" placeholder="${escapeHtml(t("paragraphLengthPlaceholder"))}" value="${escapeHtml(options.length || "")}">
             <div class="compose-evidence-head">
                 <span>${escapeHtml(t("paragraphEvidence"))}</span>
                 <span class="paragraph-evidence-count"></span>
@@ -1660,12 +2306,15 @@ function addArticleParagraph() {
     `);
     bindArticleParagraphCard(els.articleParagraphs.lastElementChild);
     updateArticleParagraphLabels();
+    els.articleParagraphs.lastElementChild.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function renderArticleEvidenceChoices(paragraphIndex) {
+function renderArticleEvidenceChoices(paragraphIndex, preferredKeys = []) {
     const splitAt = Math.ceil(state.evidenceLibrary.length / 2);
     return state.evidenceLibrary.map((item, itemIndex) => {
-        const checked = paragraphIndex === 1
+        const checked = preferredKeys.length
+            ? preferredKeys.includes(item.key)
+            : paragraphIndex === 1
             ? itemIndex < splitAt
             : paragraphIndex === 2
               ? itemIndex >= splitAt
@@ -1728,11 +2377,11 @@ async function generateArticleDraft() {
     const paragraphs = collectArticleParagraphs();
     if (!paragraphs.length) {
         showArticleOutput(`<p class="error-text">${escapeHtml(t("articleNeedParagraph"))}</p>`);
-        return;
+        return false;
     }
     if (!paragraphs.some((paragraph) => paragraph.evidences.length)) {
         showArticleOutput(`<p class="error-text">${escapeHtml(t("articleNeedEvidence"))}</p>`);
-        return;
+        return false;
     }
     showArticleOutput(renderProgressNotice(t("generatingArticle")));
     try {
@@ -1743,6 +2392,7 @@ async function generateArticleDraft() {
                 mode: "review",
                 lang: state.lang,
                 library_context: draftLibraryContext(),
+                blueprint: state.writingBlueprint || els.blueprintText?.value || "",
                 paragraphs,
                 user_token: state.userToken,
                 user_name: state.userName,
@@ -1750,16 +2400,17 @@ async function generateArticleDraft() {
         });
         renderLlmInfo({ draft: result.llm });
         loadDraftHistory();
-        showArticleOutput(`
-            <div class="answer-header">
-                <h3>${escapeHtml(t("generatedArticle"))}</h3>
-                <span class="llm-badge">${escapeHtml(formatLlm(result.llm))}</span>
-            </div>
-            <div class="answer-text">${escapeHtml(result.draft || "")}</div>
-            ${renderCitationKeySummary(result.citation_keys)}
-        `);
+        showArticleOutput(renderEditableDraft({
+            title: t("generatedArticle"),
+            llm: result.llm,
+            draft: result.draft || "",
+            citationKeys: result.citation_keys || [],
+            recordId: result.record?.id || "",
+        }));
+        return true;
     } catch (error) {
         showArticleOutput(`<p class="error-text">${escapeHtml(formatError(error.message))}</p>`);
+        return false;
     }
 }
 
@@ -1773,9 +2424,38 @@ function renderCitationKeySummary(keys) {
     `;
 }
 
+function renderEditableDraft({ title, llm, draft, citationKeys = [], recordId = "" }) {
+    return `
+        <div class="answer-header">
+            <h3>${escapeHtml(title)}</h3>
+            ${llm ? `<span class="llm-badge">${escapeHtml(formatLlm(llm))}</span>` : ""}
+        </div>
+        <div class="editable-draft">
+            <p class="editable-draft-hint">${escapeHtml(t("editableDraftHint"))}</p>
+            <textarea class="draft-editor article-draft-editor" id="article-draft-editor" data-id="${escapeHtml(recordId)}">${escapeHtml(draft || "")}</textarea>
+            <div class="draft-editor-actions">
+                <span class="draft-editor-status" id="article-draft-save-status"></span>
+                ${recordId ? `<button class="secondary-button small-button" id="save-article-draft" type="button">${escapeHtml(t("saveDraftEdit"))}</button>` : ""}
+            </div>
+        </div>
+        ${renderCitationKeySummary(citationKeys)}
+    `;
+}
+
+function bindEditableDraftOutput(root = document) {
+    const saveButton = root.querySelector("#save-article-draft");
+    if (!saveButton) return;
+    saveButton.addEventListener("click", () => {
+        const editor = root.querySelector("#article-draft-editor");
+        const status = root.querySelector("#article-draft-save-status");
+        saveDraftText(editor?.dataset.id || "", editor?.value || "", status);
+    });
+}
+
 function showArticleOutput(html) {
     els.articleOutput.classList.remove("hidden");
     els.articleOutput.innerHTML = html;
+    bindEditableDraftOutput(els.articleOutput);
     els.articleOutput.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
@@ -1883,14 +2563,14 @@ async function generateDraftParagraph() {
         });
         renderLlmInfo({ draft: result.llm });
         loadDraftHistory();
-        output.innerHTML = `
-            <div class="answer-header">
-                <h3>${escapeHtml(t("generatedParagraph"))}</h3>
-                <span class="llm-badge">${escapeHtml(formatLlm(result.llm))}</span>
-            </div>
-            <div class="answer-text">${escapeHtml(result.draft || "")}</div>
-            ${renderCitationKeySummary(result.citation_keys)}
-        `;
+        output.innerHTML = renderEditableDraft({
+            title: t("generatedParagraph"),
+            llm: result.llm,
+            draft: result.draft || "",
+            citationKeys: result.citation_keys || [],
+            recordId: result.record?.id || "",
+        });
+        bindEditableDraftOutput(output);
     } catch (error) {
         output.innerHTML = `<p class="error-text">${escapeHtml(formatError(error.message))}</p>`;
     }
@@ -2030,6 +2710,7 @@ async function loadUploadsLegacy() {
 
 async function loadUploads() {
     if (isCustomWorkspace()) {
+        state.selectedUploadIds.clear();
         await loadWorkspacePdfs();
         return;
     }
@@ -2039,10 +2720,12 @@ async function loadUploads() {
             const byTime = String(b.uploaded_at || "").localeCompare(String(a.uploaded_at || ""));
             return byTime || Number(b.id || 0) - Number(a.id || 0);
         });
+        pruneUploadSelection();
         renderUploads();
     } catch (error) {
         els.uploadsList.innerHTML = `<p class="error-text">${escapeHtml(error.message)}</p>`;
         els.uploadPagination.classList.add("hidden");
+        updateUploadSelectionToolbar([]);
     }
 }
 
@@ -2056,6 +2739,61 @@ function applyUploadFilters() {
     state.uploadPage = Math.min(Math.max(1, state.uploadPage), totalPages);
 }
 
+function visibleUploadsOnPage() {
+    const start = (state.uploadPage - 1) * state.uploadPageSize;
+    return state.filteredUploads.slice(start, start + state.uploadPageSize);
+}
+
+function pruneUploadSelection() {
+    const existing = new Set(state.uploads.map((upload) => Number(upload.id)));
+    state.selectedUploadIds.forEach((id) => {
+        if (!existing.has(Number(id))) state.selectedUploadIds.delete(id);
+    });
+}
+
+function updateUploadSelectionToolbar(pageUploads = visibleUploadsOnPage()) {
+    const selectedCount = state.selectedUploadIds.size;
+    const inWorkspace = isCustomWorkspace();
+    if (els.uploadSelectionCount) {
+        els.uploadSelectionCount.textContent = `${selectedCount} ${t("selectedUploads")}`;
+        els.uploadSelectionCount.classList.toggle("has-selection", selectedCount > 0);
+    }
+    if (els.selectVisibleUploads) {
+        els.selectVisibleUploads.disabled = inWorkspace || !pageUploads.length;
+    }
+    if (els.clearUploadSelection) {
+        els.clearUploadSelection.disabled = inWorkspace || selectedCount === 0;
+    }
+    if (els.deleteSelectedUploads) {
+        els.deleteSelectedUploads.disabled = inWorkspace || selectedCount === 0;
+    }
+}
+
+function selectVisibleUploads() {
+    visibleUploadsOnPage().forEach((upload) => {
+        state.selectedUploadIds.add(Number(upload.id));
+    });
+    renderUploads();
+}
+
+async function deleteSelectedUploads() {
+    const ids = Array.from(state.selectedUploadIds).filter(Number.isFinite);
+    if (!ids.length) return;
+    if (!confirm(t("batchDeleteConfirm"))) return;
+    try {
+        await fetchJson("/api/uploads/batch-delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids }),
+        });
+        state.selectedUploadIds.clear();
+        setUploadMessage(t("batchDeleteSuccess"), false, true);
+        await loadUploads();
+    } catch (err) {
+        alert(`${t("deleteFailed")}: ${err.message}`);
+    }
+}
+
 function renderUploads() {
     if (isCustomWorkspace()) {
         renderWorkspaceUploads();
@@ -2065,15 +2803,18 @@ function renderUploads() {
     if (!state.filteredUploads.length) {
         els.uploadsList.innerHTML = `<p class="empty-note">${escapeHtml(t("noUploads"))}</p>`;
         updateUploadPagination();
+        updateUploadSelectionToolbar([]);
         return;
     }
 
-    const start = (state.uploadPage - 1) * state.uploadPageSize;
-    const pageUploads = state.filteredUploads.slice(start, start + state.uploadPageSize);
+    const pageUploads = visibleUploadsOnPage();
     els.uploadsList.innerHTML = `
         <div class="upload-record-list">
             ${pageUploads.map((upload) => `
                 <div class="upload-item">
+                    <label class="upload-row-check" title="${escapeHtml(t("selectVisibleUploads"))}">
+                        <input class="upload-check" type="checkbox" data-id="${escapeHtml(String(upload.id))}" ${state.selectedUploadIds.has(Number(upload.id)) ? "checked" : ""}>
+                    </label>
                     <div class="upload-info">
                         <p class="upload-name">${escapeHtml(upload.original_filename || upload.filename)}</p>
                         <p class="upload-meta">PMID ${escapeHtml(upload.pmid || t("missing"))} · ${escapeHtml(upload.uploader_name || t("missing"))} · ${formatDate(upload.uploaded_at)} · ${formatSize(upload.file_size)}</p>
@@ -2089,11 +2830,13 @@ function renderUploads() {
         </div>
     `;
     updateUploadPagination();
+    updateUploadSelectionToolbar(pageUploads);
     bindUploadRecordActions();
 }
 
 function renderWorkspaceUploads() {
     const docs = state.workspaceDocuments || [];
+    updateUploadSelectionToolbar([]);
     els.uploadPagination.classList.add("hidden");
     if (!docs.length) {
         els.uploadsList.innerHTML = `<p class="empty-note">${escapeHtml(t("noWorkspacePdfs"))}</p>`;
@@ -2129,12 +2872,26 @@ function updateUploadPagination() {
 }
 
 function bindUploadRecordActions() {
+    els.uploadsList.querySelectorAll(".upload-check").forEach((input) => {
+        input.addEventListener("change", () => {
+            const id = Number(input.dataset.id);
+            if (!Number.isFinite(id)) return;
+            if (input.checked) {
+                state.selectedUploadIds.add(id);
+            } else {
+                state.selectedUploadIds.delete(id);
+            }
+            updateUploadSelectionToolbar();
+        });
+    });
+
     els.uploadsList.querySelectorAll(".delete-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
             const id = Number(btn.dataset.id);
             if (!confirm(`${t("deleteUploadConfirm")} #${id}?`)) return;
             try {
                 await fetchJson(`/api/uploads/${id}`, { method: "DELETE" });
+                state.selectedUploadIds.delete(id);
                 loadUploads();
             } catch (err) {
                 alert(`${t("deleteFailed")}: ${err.message}`);

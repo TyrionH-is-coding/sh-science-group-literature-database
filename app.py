@@ -1107,6 +1107,16 @@ def safe_upload_name(filename: str, pmid: str) -> str:
     return f"pmid_{pmid}_{timestamp}_{safe_base}{suffix}"
 
 
+def knowhere_webhook_url() -> str:
+    base_url = (
+        os.environ.get("PAPERQA_BASE_URL")
+        or os.environ.get("PUBLIC_BASE_URL")
+        or os.environ.get("APP_BASE_URL")
+        or f"http://localhost:{PORT}"
+    )
+    return f"{base_url.rstrip('/')}/api/knowhere-webhook"
+
+
 def init_engine_background() -> None:
     global _engine_ready, _engine_error
     api_key = get_api_key()
@@ -1141,6 +1151,86 @@ def init_engine_background() -> None:
     t.start()
     # Don't wait - the health endpoint will see _engine_ready=True once loading finishes
     logger.info("PaperQA background loading started")
+
+
+def reload_engine_background(reason: str = "") -> None:
+    global _engine_error
+    api_key = get_api_key()
+    if not api_key:
+        _engine_error = "DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured"
+        logger.error(_engine_error)
+        return
+
+    import threading
+
+    def _reload(k):
+        global _engine_ready, _engine_error
+        import asyncio
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            from paperqa_engine import reload_engine
+
+            docs = new_loop.run_until_complete(reload_engine(api_key=k, corpus_dir=CORPUS_DIR))
+            _engine_ready = True
+            _engine_error = None
+            logger.info("PaperQA engine reloaded after %s: %s docs", reason or "corpus update", len(docs.docs))
+        except Exception as exc:
+            _engine_error = str(exc)
+            logger.exception("PaperQA reload failed after %s", reason or "corpus update")
+        finally:
+            new_loop.close()
+
+    thread = threading.Thread(target=_reload, args=(api_key,), daemon=True)
+    thread.start()
+    logger.info("PaperQA background reload started: %s", reason or "corpus update")
+
+
+def add_paper_to_engine_background(markdown_path: str, reason: str = "") -> None:
+    global _engine_error
+    api_key = get_api_key()
+    if not api_key:
+        _engine_error = "DEEPSEEK_API_KEY or PAPERQA_API_KEY is not configured"
+        logger.error(_engine_error)
+        return
+    if not markdown_path:
+        logger.warning("Skip PaperQA incremental add: missing markdown path")
+        return
+
+    import threading
+
+    def _add(k, path_value):
+        global _engine_ready, _engine_error
+        import asyncio
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            from paperqa_engine import add_markdown_file
+
+            result = new_loop.run_until_complete(add_markdown_file(path_value, api_key=k))
+            if result.get("added"):
+                _engine_ready = True
+                _engine_error = None
+                logger.info(
+                    "PaperQA incremental add after %s: %s docs",
+                    reason or "corpus update",
+                    result.get("docs_count"),
+                )
+            else:
+                logger.info(
+                    "PaperQA incremental add deferred after %s: %s",
+                    reason or "corpus update",
+                    result.get("reason"),
+                )
+        except Exception as exc:
+            _engine_error = str(exc)
+            logger.exception("PaperQA incremental add failed after %s", reason or "corpus update")
+        finally:
+            new_loop.close()
+
+    thread = threading.Thread(target=_add, args=(api_key, markdown_path), daemon=True)
+    thread.start()
+    logger.info("PaperQA incremental add started: %s", reason or markdown_path)
 
 
 @app.on_event("startup")
@@ -1216,9 +1306,16 @@ async def api_update_draft(record_id: str, request: Request):
     records = load_json_list(DRAFT_HISTORY_FILE)
     for item in records:
         if item.get("id") == record_id and item.get("user_id") == user.get("id"):
-            pinned = bool(body.get("pinned"))
-            item["pinned"] = pinned
-            item["pinned_at"] = datetime.now().isoformat() if pinned else ""
+            if "pinned" in body:
+                pinned = bool(body.get("pinned"))
+                item["pinned"] = pinned
+                item["pinned_at"] = datetime.now().isoformat() if pinned else ""
+            if "draft" in body:
+                draft = str(body.get("draft", "")).strip()
+                if not draft:
+                    raise HTTPException(status_code=400, detail="Draft text cannot be empty")
+                item["draft"] = draft[:30000]
+                item["edited_at"] = datetime.now().isoformat()
             save_json_list(DRAFT_HISTORY_FILE, records)
             return {"ok": True, "draft": item}
 
@@ -2085,6 +2182,7 @@ async def api_draft_article(request: Request):
 
     language = "Chinese" if str(body.get("lang", "en")).lower().startswith("zh") else "English"
     library_context = normalize_library_context(str(body.get("library_context", "general_review")))
+    blueprint = str(body.get("blueprint", "")).strip()[:4000]
     paragraph_blocks = []
     for paragraph in clean_paragraphs:
         length_line = f"\nApproximate length: {paragraph['length']}" if paragraph["length"] else ""
@@ -2107,6 +2205,7 @@ async def api_draft_article(request: Request):
         "Treat the paragraph plans as an ordered outline. Make transitions between paragraphs explicit and smooth. "
         "Preserve paragraph order unless the supplied evidence forces a clearer logical sequence. "
         "Do not add headings unless the user explicitly asks for them.\n\n"
+        f"User-confirmed writing blueprint:\n{blueprint or 'No separate blueprint supplied.'}\n\n"
         "Paragraph plans:\n"
         + "\n\n".join(paragraph_blocks)
     )
@@ -2144,6 +2243,7 @@ async def api_draft_article(request: Request):
             "citation_keys": citation_keys,
             "writing_profile": NATURE_REVIEW_DRAFTING_PROFILE,
             "library_context": library_context,
+            "blueprint": blueprint,
             "paragraphs": [
                 {
                     "instruction": paragraph["instruction"],
@@ -2219,9 +2319,7 @@ async def api_upload(
     knowhere_info = None
     if KNOWHERE_ENABLED and clean_pmid:
         try:
-            webhook_url = (
-                f"http://localhost:{os.environ.get('PORT', '8081')}/api/knowhere-webhook"
-            )
+            webhook_url = knowhere_webhook_url()
             result = submit_parse_job(
                 pmid=clean_pmid,
                 pdf_path=destination,
@@ -2258,6 +2356,55 @@ async def api_uploads():
         public_pdf = public_pdf_upload(item)
         uploads.append({**item, "pdf_url": public_pdf["url"] if public_pdf else ""})
     return {"uploads": uploads}
+
+
+@app.post("/api/uploads/batch-delete")
+async def api_batch_delete_uploads(request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    raw_ids = body.get("ids")
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail="ids must be a list")
+
+    upload_ids: set[int] = set()
+    for raw_id in raw_ids:
+        try:
+            upload_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if upload_id > 0:
+            upload_ids.add(upload_id)
+    if not upload_ids:
+        raise HTTPException(status_code=400, detail="No valid upload ids")
+
+    metadata = load_uploads_metadata()
+    deleted: list[int] = []
+    remaining: list[dict[str, Any]] = []
+    for item in metadata:
+        item_id = int(item.get("id", 0) or 0)
+        if item_id in upload_ids:
+            deleted.append(item_id)
+            pdf_path = UPLOAD_DIR / str(item.get("filename", ""))
+            if pdf_path.exists():
+                pdf_path.unlink()
+            continue
+        remaining.append(item)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No matching uploads found")
+
+    save_uploads_metadata(remaining)
+    missing = sorted(upload_ids - set(deleted))
+    logger.info("Batch deleted uploads: %s", deleted)
+    return {
+        "message": "Uploads deleted",
+        "deleted_ids": sorted(deleted),
+        "missing_ids": missing,
+        "deleted_count": len(deleted),
+    }
 
 
 @app.get("/api/uploads/{upload_id}/file")
@@ -2357,6 +2504,9 @@ async def api_knowhere_webhook(request: Request):
 
     # Verify signature if secret is configured
     signature = request.headers.get("X-Knowhere-Signature", "")
+    if os.environ.get("KNOWHERE_WEBHOOK_SECRET", "") and not signature:
+        logger.warning("Knowhere webhook missing signature")
+        raise HTTPException(status_code=401, detail="Missing signature")
     if signature:
         if not verify_webhook_signature(payload_body, signature):
             logger.warning("Knowhere webhook signature mismatch")
@@ -2370,6 +2520,11 @@ async def api_knowhere_webhook(request: Request):
     try:
         result = handle_webhook_callback(payload)
         logger.info("Knowhere webhook result: %s", result)
+        if result.get("status") == "ok":
+            add_paper_to_engine_background(
+                str(result.get("corpus_path") or ""),
+                f"Knowhere webhook PMID {result.get('pmid', '')}",
+            )
         return result
     except Exception as exc:
         logger.error("Knowhere webhook handler error: %s", exc, exc_info=True)

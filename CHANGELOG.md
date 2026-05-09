@@ -10,6 +10,16 @@
 
 ## 2026-05-08
 
+### 上传与入库
+
+- 上传记录新增勾选框，支持选择当前页、清空选择和批量删除，批量删除会同步清理对应 PDF 文件。
+- 上传 PDF 自动提交 Knowhere 解析时，webhook 地址改为优先读取 `PAPERQA_BASE_URL` / `PUBLIC_BASE_URL` / `APP_BASE_URL`，便于服务器公网回调。
+- Knowhere webhook 完成解析并写入 Markdown corpus 后，改为增量整合入 PaperQA：已加载时只 `aadd` 新增 Markdown；冷启动未完成时先放入 pending 队列，避免每上传一篇就重扫全库。
+- 配置了 `KNOWHERE_WEBHOOK_SECRET` 时，webhook 请求必须携带签名，避免未签名回调被接受。
+- 写作页面新增 Markdown 文章大纲工作台：可导入大纲、按章节生成 PaperQA 检索问题、把检索证据加入自选库或直接分配到段落计划。
+- 写作工作流改为逐步确认：大纲、检索、证据、蓝图、草稿、审阅按步骤推进，用户必须确认 evidence 和写作蓝图后才生成草稿。
+- 生成文章和历史生成记录支持在网页内直接编辑并保存，方便把 AI 输出继续修改成可用工作稿。
+
 ### 调整
 
 - 文章/段落生成功能接入 `nature-polishing` 的核心写作规则：按 claim-evidence-boundary、review synthesis、citation-key 保护和 overclaim control 生成更专业的综述草稿。

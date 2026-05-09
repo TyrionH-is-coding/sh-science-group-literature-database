@@ -255,6 +255,10 @@
                                 <input id="my-uploads-only" type="checkbox">
                                 <span data-i18n="myUploadsOnly">Only mine</span>
                             </label>
+                            <span class="upload-selection-status" id="upload-selection-count">0 selected</span>
+                            <button class="secondary-button small-button" id="select-visible-uploads" type="button" data-i18n="selectVisibleUploads">Select page</button>
+                            <button class="secondary-button small-button" id="clear-upload-selection" type="button" data-i18n="clearUploadSelection">Clear</button>
+                            <button class="secondary-button small-button batch-delete-button" id="delete-selected-uploads" type="button" data-i18n="deleteSelectedUploads">Delete selected</button>
                             <button class="secondary-button" id="refresh-uploads" type="button" data-i18n="refresh">Refresh</button>
                         </div>
                     </div>
@@ -336,11 +340,57 @@
                     <button class="secondary-button" id="back-to-workspace" type="button" data-i18n="backWorkspace">Back to workspace</button>
                 </div>
                 <div class="article-compose-actions">
+                    <label class="secondary-button outline-import-button" for="outline-file" data-i18n="importOutline">Import outline</label>
+                    <input class="hidden-file-input" id="outline-file" type="file" accept=".md,.markdown,text/markdown,text/plain">
+                    <button class="secondary-button" id="clear-outline" type="button" data-i18n="clearOutline">Clear outline</button>
                     <button class="secondary-button" id="add-paragraph" type="button" data-i18n="addParagraph">Add paragraph</button>
-                    <button class="primary-button" id="generate-article" type="button" data-i18n="generateArticle">Generate article</button>
                 </div>
+                <div class="writing-stepper" id="writing-stepper" aria-label="Manuscript drafting workflow">
+                    <button class="writing-step" type="button" data-step="1"><span>1</span><strong data-i18n="stepOutline">Outline</strong></button>
+                    <button class="writing-step" type="button" data-step="2"><span>2</span><strong data-i18n="stepRetrieve">Retrieve</strong></button>
+                    <button class="writing-step" type="button" data-step="3"><span>3</span><strong data-i18n="stepEvidence">Evidence</strong></button>
+                    <button class="writing-step" type="button" data-step="4"><span>4</span><strong data-i18n="stepBlueprint">Blueprint</strong></button>
+                    <button class="writing-step" type="button" data-step="5"><span>5</span><strong data-i18n="stepDraft">Draft</strong></button>
+                    <button class="writing-step" type="button" data-step="6"><span>6</span><strong data-i18n="stepPolish">Review</strong></button>
+                </div>
+                <div class="writing-flow-toolbar">
+                    <p class="writing-stage-note" id="writing-stage-note"></p>
+                    <div class="writing-flow-actions">
+                        <button class="secondary-button" id="writing-prev-step" type="button" data-i18n="previousStep">Previous step</button>
+                        <button class="primary-button" id="writing-next-step" type="button" data-i18n="confirmNextStep">Confirm next</button>
+                    </div>
+                </div>
+                <div class="manuscript-workbench" id="manuscript-workbench">
+                    <aside class="outline-panel">
+                        <div class="outline-panel-head">
+                            <div>
+                                <p class="panel-label" data-i18n="outlinePanel">Manuscript outline</p>
+                                <h3 data-i18n="outlinePanelTitle">Sections</h3>
+                            </div>
+                            <span class="outline-count" id="outline-count">0</span>
+                        </div>
+                        <div class="outline-list" id="outline-list">
+                            <p class="empty-note" data-i18n="outlineEmpty">Import a Markdown outline to plan section-level retrieval.</p>
+                        </div>
+                    </aside>
+                    <section class="outline-detail" id="outline-detail">
+                        <p class="empty-note" data-i18n="outlineDetailEmpty">Select a section to build a retrieval query and assign evidence.</p>
+                    </section>
+                </div>
+                <section class="blueprint-panel hidden" id="blueprint-panel">
+                    <div class="outline-detail-head">
+                        <div>
+                            <p class="panel-label" data-i18n="blueprintPanel">Writing blueprint</p>
+                            <h3 data-i18n="blueprintTitle">Confirm the manuscript logic</h3>
+                        </div>
+                        <button class="secondary-button small-button" id="generate-blueprint" type="button" data-i18n="generateBlueprint">Regenerate blueprint</button>
+                    </div>
+                    <p class="compose-page-copy" data-i18n="blueprintHint">Edit the global storyline before paragraph generation. This is the control layer that keeps sections coherent.</p>
+                    <textarea class="query-input blueprint-editor" id="blueprint-text"></textarea>
+                </section>
                 <div class="article-paragraphs" id="article-paragraphs"></div>
                 <div class="draft-output hidden" id="article-output"></div>
+                <button class="primary-button generate-article-button hidden" id="generate-article" type="button" data-i18n="generateArticle">Generate article</button>
             </section>
         </main>
 

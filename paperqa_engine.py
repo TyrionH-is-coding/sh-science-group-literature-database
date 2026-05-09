@@ -16,6 +16,7 @@ DEFAULT_CORPUS_DIR = ROOT / "paperqa_import" / "high_medium_ready"
 
 _docs: Any = None
 _docs_loaded = False
+_pending_markdown_paths: set[str] = set()
 
 
 def get_llm_config() -> dict[str, Any]:
@@ -52,6 +53,7 @@ async def _load_all(api_key: str, corpus_dir: Path) -> Any:
     docs = Docs(llm="langchain", embedding="sparse", client=llm)
 
     md_files = sorted(corpus_dir.glob("*.md"))
+    loaded_paths = {str(path.resolve()) for path in md_files}
     logger.info("PaperQA: loading %s files from %s", len(md_files), corpus_dir)
 
     for i in range(0, len(md_files), 10):
@@ -63,6 +65,20 @@ async def _load_all(api_key: str, corpus_dir: Path) -> Any:
                 logger.warning("PaperQA: skip %s - %s", path.name, exc)
         loaded = min(i + 10, len(md_files))
         logger.info("PaperQA: loaded %s/%s (%s docs)", loaded, len(md_files), len(docs.docs))
+
+    pending_paths = sorted(_pending_markdown_paths)
+    for pending in pending_paths:
+        pending_path = Path(pending)
+        if not pending_path.exists() or str(pending_path.resolve()) in loaded_paths:
+            _pending_markdown_paths.discard(pending)
+            continue
+        try:
+            await docs.aadd(str(pending_path), docname=pending_path.stem)
+            logger.info("PaperQA: loaded pending incremental file %s", pending_path.name)
+        except Exception as exc:
+            logger.warning("PaperQA: skip pending %s - %s", pending_path.name, exc)
+        finally:
+            _pending_markdown_paths.discard(pending)
 
     logger.info("PaperQA ready: %s docs, %s chunks", len(docs.docs), len(docs.texts))
     return docs
@@ -111,6 +127,62 @@ def init_engine_sync(api_key: str | None = None, corpus_dir: str | Path | None =
         return _docs
     finally:
         loop.close()
+
+
+async def reload_engine(api_key: str | None = None, corpus_dir: str | Path | None = None) -> Any:
+    """Reload all docs from disk and replace the in-memory PaperQA index."""
+    global _docs, _docs_loaded
+
+    target = Path(corpus_dir or DEFAULT_CORPUS_DIR).resolve()
+    api_key = api_key or get_api_key()
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY not configured")
+
+    docs = await _load_all(api_key, target)
+    _docs = docs
+    _docs_loaded = True
+    return docs
+
+
+async def add_markdown_file(
+    markdown_path: str | Path,
+    *,
+    api_key: str | None = None,
+    docname: str | None = None,
+) -> dict[str, Any]:
+    """Add one Markdown file to the in-memory PaperQA index without reloading the corpus."""
+    global _docs, _docs_loaded
+
+    path = Path(markdown_path).resolve()
+    if not path.exists():
+        raise FileNotFoundError(str(path))
+
+    if not _docs_loaded or _docs is None:
+        _pending_markdown_paths.add(str(path))
+        logger.info("PaperQA: defer incremental add for %s because engine is not loaded", path.name)
+        return {
+            "added": False,
+            "reason": "engine_not_loaded",
+            "path": str(path),
+            "docname": docname or path.stem,
+            "docs_count": 0,
+            "texts_count": 0,
+        }
+
+    docname = docname or path.stem
+    api_key = api_key or get_api_key()
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY not configured")
+
+    await _docs.aadd(str(path), docname=docname)
+    logger.info("PaperQA: incrementally added %s (%s docs, %s chunks)", path.name, len(_docs.docs), len(_docs.texts))
+    return {
+        "added": True,
+        "path": str(path),
+        "docname": docname,
+        "docs_count": len(_docs.docs),
+        "texts_count": len(_docs.texts),
+    }
 
 
 async def query(question: str, k: int = 10, max_sources: int = 5) -> dict[str, Any]:
