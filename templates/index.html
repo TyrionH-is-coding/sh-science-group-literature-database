@@ -75,7 +75,7 @@
             <div class="brand-heading">
                 <div>
                     <p class="eyebrow" data-i18n="projectEyebrow">Project hub</p>
-                    <h1 data-i18n="projectTitle">Choose a dataset</h1>
+                    <h1 data-i18n="projectTitle">Choose a workspace</h1>
                 </div>
             </div>
             <div class="top-actions">
@@ -88,11 +88,12 @@
         </header>
         <main class="project-grid" id="project-main">
             <button class="project-card" id="open-aps-project" type="button">
-                <span class="project-kicker" data-i18n="apsKicker">Active dataset</span>
+                <span class="project-kicker" data-i18n="apsKicker">Current workspace</span>
                 <strong data-i18n="apsTitle">APS Review</strong>
                 <span data-i18n="apsDescription">Systematic review corpus with PaperQA search, paper inspection, and file upload queue.</span>
                 <em data-i18n="enterProject">Enter project</em>
             </button>
+            <div class="custom-workspace-list" id="custom-workspaces"></div>
             <form class="project-card create-workspace-card" id="create-workspace-form">
                 <span class="project-kicker" data-i18n="newWorkspaceKicker">Custom workspace</span>
                 <strong data-i18n="newWorkspaceTitle">Add workspace</strong>
@@ -120,7 +121,6 @@
                 </div>
                 <p class="form-message" id="workspace-message"></p>
             </form>
-            <div class="custom-workspace-list" id="custom-workspaces"></div>
         </main>
     </div>
 
