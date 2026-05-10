@@ -1,3 +1,6 @@
+const AUTH_VERSION = "password-v1";
+const storedAuthVersion = localStorage.getItem("litdb.authVersion");
+
 const state = {
     papers: [],
     filteredPapers: [],
@@ -13,9 +16,10 @@ const state = {
     uploadPageSize: 20,
     myUploadsOnly: localStorage.getItem("litdb.myUploadsOnly") === "1",
     selectedUploadIds: new Set(),
-    userName: localStorage.getItem("litdb.userName") || "",
-    userToken: localStorage.getItem("litdb.userToken") || "",
-    userId: localStorage.getItem("litdb.userId") || "",
+    userName: storedAuthVersion === AUTH_VERSION ? (localStorage.getItem("litdb.userName") || "") : "",
+    userToken: storedAuthVersion === AUTH_VERSION ? (localStorage.getItem("litdb.userToken") || "") : "",
+    userId: storedAuthVersion === AUTH_VERSION ? (localStorage.getItem("litdb.userId") || "") : "",
+    mustChangePassword: false,
     lang: localStorage.getItem("litdb.lang") || "en",
     project: sessionStorage.getItem("litdb.project") || "",
     customWorkspaces: [],
@@ -35,8 +39,20 @@ const i18n = {
     en: {
         loginEyebrow: "Team workspace",
         loginTitle: "Welcome back",
-        loginCopy: "Enter your name to access the research workspace.",
+        loginCopy: "Choose your account and enter your password.",
         loginNameLabel: "User name",
+        chooseUser: "Choose user",
+        passwordLabel: "Password",
+        currentPasswordLabel: "Current password",
+        newPasswordLabel: "New password",
+        confirmPasswordLabel: "Confirm password",
+        firstLoginPasswordHint: "First login: set your personal password before entering the workspace.",
+        savePasswordButton: "Save password",
+        cancelPasswordChange: "Back to login",
+        passwordChanged: "Password saved. Entering workspace.",
+        passwordMismatch: "The two new passwords do not match.",
+        passwordTooShort: "New password must be at least 6 characters.",
+        passwordChangeFailed: "Could not update password.",
         loginButton: "Enter workspace",
         language: "Language",
         projectEyebrow: "Project hub",
@@ -255,7 +271,7 @@ const i18n = {
         guideTitle: "Usage guide",
         guideIntro: "This page documents the current workflow. Add new notes here whenever the site gains a feature.",
         guideStartTitle: "1. Sign in and enter APS Review",
-        guideStartText: "Enter your user name on the login screen, then choose APS Review. The name is used for uploads and saved LLM draft history.",
+        guideStartText: "Choose your team account on the login screen, then enter your password and choose APS Review. The account is used for uploads and saved LLM draft history.",
         guideLibraryTitle: "2. Browse the literature library",
         guideLibraryText: "Use search, priority, module filters, and pagination to narrow the paper table. Each page shows 50 papers by default.",
         guidePaperTitle: "3. Open and select from a paper",
@@ -354,8 +370,20 @@ const i18n = {
     zh: {
         loginEyebrow: "团队工作区",
         loginTitle: "欢迎回来",
-        loginCopy: "输入用户名即可进入科研工作区。",
+        loginCopy: "选择账号并输入密码进入科研工作区。",
         loginNameLabel: "用户名",
+        chooseUser: "选择用户",
+        passwordLabel: "密码",
+        currentPasswordLabel: "当前密码",
+        newPasswordLabel: "新密码",
+        confirmPasswordLabel: "确认新密码",
+        firstLoginPasswordHint: "首次登录需要先设置个人密码，然后才能进入工作区。",
+        savePasswordButton: "保存密码",
+        cancelPasswordChange: "返回登录",
+        passwordChanged: "密码已保存，正在进入工作区。",
+        passwordMismatch: "两次输入的新密码不一致。",
+        passwordTooShort: "新密码至少需要 6 位。",
+        passwordChangeFailed: "无法更新密码。",
         loginButton: "进入工作区",
         language: "语言",
         projectEyebrow: "项目入口",
@@ -574,7 +602,7 @@ const i18n = {
         guideTitle: "网站使用说明",
         guideIntro: "这里记录当前网站的使用流程。之后每次增加新功能，就把说明和更新记录补在这里。",
         guideStartTitle: "1. 登录并进入 APS Review",
-        guideStartText: "在登录页输入用户名，然后进入 APS Review。用户名会用于上传记录和 LLM 生成记录保存。",
+        guideStartText: "在登录页选择课题组账号并输入密码，然后进入 APS Review。账号会用于上传记录和 LLM 生成记录保存。",
         guideLibraryTitle: "2. 浏览文献库",
         guideLibraryText: "可以用搜索、优先度、模块筛选和分页来缩小文献表范围。文献表默认每页显示 50 篇。",
         guidePaperTitle: "3. 打开原文并选择句子",
@@ -711,7 +739,16 @@ const els = {
     articleComposePage: document.getElementById("article-compose-page"),
     draftHistoryPage: document.getElementById("draft-history-page"),
     loginForm: document.getElementById("login-form"),
+    loginFields: document.getElementById("login-fields"),
     loginName: document.getElementById("login-name"),
+    loginPassword: document.getElementById("login-password"),
+    loginMessage: document.getElementById("login-message"),
+    passwordChangeFields: document.getElementById("password-change-fields"),
+    currentPassword: document.getElementById("current-password"),
+    newPassword: document.getElementById("new-password"),
+    confirmPassword: document.getElementById("confirm-password"),
+    changePasswordButton: document.getElementById("change-password-button"),
+    cancelPasswordChange: document.getElementById("cancel-password-change"),
     userChip: document.getElementById("user-chip"),
     projectUserChip: document.getElementById("project-user-chip"),
     draftHistoryChip: document.getElementById("draft-history-chip"),
@@ -859,23 +896,40 @@ function canEditWorkspace(workspace) {
 function bindLogin() {
     els.loginForm.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (state.mustChangePassword) {
+            changePassword();
+            return;
+        }
         const value = els.loginName.value.trim();
+        const password = els.loginPassword.value;
         if (!value) return;
+        if (!password) return;
+        setLoginMessage("");
         try {
             const result = await fetchJson("/api/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: value }),
+                body: JSON.stringify({ name: value, password }),
             });
-            applyUser(result.user || { name: value });
-            refreshUserState();
-            loadDraftHistory();
-            openRequestedComposer();
+            const user = result.user || { name: value };
+            applyUser(user, { persist: !user.must_change_password });
+            if (user.must_change_password) {
+                showPasswordChange(true);
+                els.currentPassword.value = password;
+                els.newPassword.focus();
+                return;
+            }
+            afterSuccessfulLogin();
         } catch (error) {
-            window.alert(`${t("loginFailed")} ${formatError(error.message)}`);
+            setLoginMessage(`${t("loginFailed")} ${formatError(error.message)}`, true);
         }
     });
 
+    els.changePasswordButton?.addEventListener("click", changePassword);
+    els.cancelPasswordChange?.addEventListener("click", () => {
+        switchUser();
+        showPasswordChange(false);
+    });
     [els.userChip, els.projectUserChip].forEach((button) => button.addEventListener("click", switchUser));
     els.backToProjects.addEventListener("click", returnToProjectHub);
 
@@ -888,6 +942,63 @@ function bindLogin() {
     });
     els.startCreateWorkspace.addEventListener("click", showWorkspaceCreateSetup);
     els.createWorkspaceForm.addEventListener("submit", createWorkspace);
+}
+
+function setLoginMessage(message, isError = false) {
+    if (!els.loginMessage) return;
+    els.loginMessage.textContent = message || "";
+    els.loginMessage.className = `form-message ${isError ? "error-text" : message ? "success-text" : ""}`;
+}
+
+function showPasswordChange(open) {
+    state.mustChangePassword = Boolean(open);
+    els.loginFields?.classList.toggle("hidden", Boolean(open));
+    els.passwordChangeFields?.classList.toggle("hidden", !open);
+}
+
+async function changePassword() {
+    const currentPassword = els.currentPassword?.value || "";
+    const newPassword = els.newPassword?.value || "";
+    const confirmPassword = els.confirmPassword?.value || "";
+    if (newPassword.length < 6) {
+        setLoginMessage(t("passwordTooShort"), true);
+        return;
+    }
+    if (newPassword !== confirmPassword) {
+        setLoginMessage(t("passwordMismatch"), true);
+        return;
+    }
+    try {
+        const result = await fetchJson("/api/auth/change-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                user_token: state.userToken,
+                current_password: currentPassword,
+                new_password: newPassword,
+            }),
+        });
+        applyUser(result.user || {}, { persist: true });
+        setLoginMessage(t("passwordChanged"));
+        showPasswordChange(false);
+        clearPasswordFields();
+        afterSuccessfulLogin();
+    } catch (error) {
+        setLoginMessage(`${t("passwordChangeFailed")} ${formatError(error.message)}`, true);
+    }
+}
+
+function clearPasswordFields() {
+    if (els.loginPassword) els.loginPassword.value = "";
+    if (els.currentPassword) els.currentPassword.value = "";
+    if (els.newPassword) els.newPassword.value = "";
+    if (els.confirmPassword) els.confirmPassword.value = "";
+}
+
+function afterSuccessfulLogin() {
+    refreshUserState();
+    loadDraftHistory();
+    openRequestedComposer();
 }
 
 function showWorkspaceCreateSetup() {
@@ -1078,24 +1189,39 @@ function switchUser() {
     state.userName = "";
     state.userToken = "";
     state.userId = "";
+    state.mustChangePassword = false;
     state.project = "";
     state.draftHistory = [];
     localStorage.removeItem("litdb.userName");
     localStorage.removeItem("litdb.userToken");
     localStorage.removeItem("litdb.userId");
+    localStorage.removeItem("litdb.authVersion");
     sessionStorage.removeItem("litdb.project");
+    clearPasswordFields();
+    setLoginMessage("");
+    showPasswordChange(false);
     renderDraftHistory();
     refreshUserState();
     els.loginName.focus();
 }
 
-function applyUser(user) {
+function applyUser(user, options = {}) {
+    const persist = options.persist !== false;
     state.userName = (user.name || "").trim();
     state.userToken = user.token || "";
     state.userId = user.id || "";
-    localStorage.setItem("litdb.userName", state.userName);
-    if (state.userToken) localStorage.setItem("litdb.userToken", state.userToken);
-    if (state.userId) localStorage.setItem("litdb.userId", state.userId);
+    state.mustChangePassword = Boolean(user.must_change_password);
+    if (persist && !state.mustChangePassword) {
+        localStorage.setItem("litdb.userName", state.userName);
+        if (state.userToken) localStorage.setItem("litdb.userToken", state.userToken);
+        if (state.userId) localStorage.setItem("litdb.userId", state.userId);
+        localStorage.setItem("litdb.authVersion", AUTH_VERSION);
+    } else {
+        localStorage.removeItem("litdb.userName");
+        localStorage.removeItem("litdb.userToken");
+        localStorage.removeItem("litdb.userId");
+        localStorage.removeItem("litdb.authVersion");
+    }
 }
 
 function routeWantsArticleComposer() {
@@ -1125,17 +1251,7 @@ function openRequestedComposer() {
 
 async function ensureUserSession() {
     if (!state.userName || state.userToken) return;
-    try {
-        const result = await fetchJson("/api/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: state.userName }),
-        });
-        applyUser(result.user || { name: state.userName });
-        loadDraftHistory();
-    } catch {
-        // The workspace can still be browsed; draft history will resume after the next login.
-    }
+    switchUser();
 }
 
 function bindLanguage() {
@@ -1178,10 +1294,12 @@ function applyLanguage() {
 }
 
 function refreshUserState() {
-    const hasUser = Boolean(state.userName);
+    const hasUser = Boolean(state.userName) && !state.mustChangePassword;
     const inProject = hasUser && Boolean(state.project);
     const custom = isCustomWorkspace();
     els.loginScreen.classList.toggle("hidden", hasUser);
+    els.loginFields?.classList.toggle("hidden", state.mustChangePassword);
+    els.passwordChangeFields?.classList.toggle("hidden", !state.mustChangePassword);
     els.projectScreen.classList.toggle("hidden", !hasUser || inProject);
     els.appShell.classList.toggle("hidden", !inProject);
     if (!inProject) {

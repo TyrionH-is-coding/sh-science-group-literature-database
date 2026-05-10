@@ -26,10 +26,47 @@
             </div>
             <p class="eyebrow" data-i18n="loginEyebrow">Team workspace</p>
             <h1 data-i18n="loginTitle">Welcome back</h1>
-            <p class="login-copy" data-i18n="loginCopy">Enter your name to access the research workspace.</p>
-            <label class="field-label" for="login-name" data-i18n="loginNameLabel">User name</label>
-            <input id="login-name" class="text-input" type="text" autocomplete="name" placeholder="e.g. Harry">
-            <button class="primary-button" type="submit" data-i18n="loginButton">Enter workspace</button>
+            <p class="login-copy" data-i18n="loginCopy">Choose your account and enter your password.</p>
+            <div id="login-fields" class="login-fields">
+                <label class="field-label" for="login-name" data-i18n="loginNameLabel">User name</label>
+                <select id="login-name" class="text-input" autocomplete="username">
+                    <option value="" data-i18n="chooseUser">Choose user</option>
+                    <option value="石慧">石慧</option>
+                    <option value="余淑仪">余淑仪</option>
+                    <option value="魏筱涵">魏筱涵</option>
+                    <option value="周天成">周天成</option>
+                    <option value="汪岑一">汪岑一</option>
+                    <option value="顾诗妍">顾诗妍</option>
+                    <option value="杨志霞">杨志霞</option>
+                    <option value="贺泽慧">贺泽慧</option>
+                    <option value="陈梦思">陈梦思</option>
+                    <option value="吴鉴洲">吴鉴洲</option>
+                    <option value="潘灏瑜">潘灏瑜</option>
+                    <option value="李雪钰">李雪钰</option>
+                    <option value="樊豫颖">樊豫颖</option>
+                    <option value="钱金奕">钱金奕</option>
+                    <option value="姜懿">姜懿</option>
+                    <option value="侯星羽">侯星羽</option>
+                    <option value="史鑫鑫">史鑫鑫</option>
+                    <option value="陈影">陈影</option>
+                    <option value="胡鲁诺">胡鲁诺</option>
+                </select>
+                <label class="field-label" for="login-password" data-i18n="passwordLabel">Password</label>
+                <input id="login-password" class="text-input" type="password" autocomplete="current-password" placeholder="123456">
+                <button class="primary-button" type="submit" data-i18n="loginButton">Enter workspace</button>
+            </div>
+            <div id="password-change-fields" class="password-change-fields hidden">
+                <p class="login-copy" data-i18n="firstLoginPasswordHint">First login: set your personal password before entering the workspace.</p>
+                <label class="field-label" for="current-password" data-i18n="currentPasswordLabel">Current password</label>
+                <input id="current-password" class="text-input" type="password" autocomplete="current-password">
+                <label class="field-label" for="new-password" data-i18n="newPasswordLabel">New password</label>
+                <input id="new-password" class="text-input" type="password" autocomplete="new-password">
+                <label class="field-label" for="confirm-password" data-i18n="confirmPasswordLabel">Confirm password</label>
+                <input id="confirm-password" class="text-input" type="password" autocomplete="new-password">
+                <button class="primary-button" id="change-password-button" type="button" data-i18n="savePasswordButton">Save password</button>
+                <button class="secondary-button" id="cancel-password-change" type="button" data-i18n="cancelPasswordChange">Back to login</button>
+            </div>
+            <p id="login-message" class="form-message" aria-live="polite"></p>
         </form>
     </div>
 

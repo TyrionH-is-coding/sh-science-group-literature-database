@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
 import io
 import json
 import logging
@@ -51,6 +53,29 @@ UPLOAD_MEDIA_TYPES = {
     ".markdown": "text/markdown; charset=utf-8",
     ".txt": "text/plain; charset=utf-8",
 }
+DEFAULT_INITIAL_PASSWORD = os.environ.get("LITDB_INITIAL_PASSWORD", "123456")
+PASSWORD_HASH_ITERATIONS = int(os.environ.get("LITDB_PASSWORD_HASH_ITERATIONS", "210000"))
+TEAM_USER_ROSTER = [
+    {"name": "石慧", "module": "模块1"},
+    {"name": "余淑仪", "module": "模块2"},
+    {"name": "魏筱涵", "module": "模块3"},
+    {"name": "周天成", "module": "模块4"},
+    {"name": "汪岑一", "module": "模块4"},
+    {"name": "顾诗妍", "module": "模块5"},
+    {"name": "杨志霞", "module": "模块7"},
+    {"name": "贺泽慧", "module": "模块9"},
+    {"name": "陈梦思", "module": "模块10"},
+    {"name": "吴鉴洲", "module": "模块8"},
+    {"name": "潘灏瑜", "module": "模块12"},
+    {"name": "李雪钰", "module": "模块13"},
+    {"name": "樊豫颖", "module": "模块14"},
+    {"name": "钱金奕", "module": ""},
+    {"name": "姜懿", "module": ""},
+    {"name": "侯星羽", "module": ""},
+    {"name": "史鑫鑫", "module": ""},
+    {"name": "陈影", "module": ""},
+    {"name": "胡鲁诺", "module": ""},
+]
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 WORKSPACE_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -1284,11 +1309,104 @@ def normalize_user_name(name: str) -> str:
     return cleaned[:80]
 
 
-def find_user_by_token(token: str | None) -> dict[str, Any] | None:
+def team_user_by_name(name: str) -> dict[str, str] | None:
+    normalized = normalize_user_name(name).casefold()
+    for user in TEAM_USER_ROSTER:
+        if user["name"].casefold() == normalized:
+            return user
+    return None
+
+
+def hash_password(password: str, salt_hex: str | None = None) -> str:
+    salt = bytes.fromhex(salt_hex) if salt_hex else os.urandom(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password).encode("utf-8"),
+        salt,
+        PASSWORD_HASH_ITERATIONS,
+    )
+    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    parts = str(stored_hash or "").split("$")
+    if len(parts) != 4 or parts[0] != "pbkdf2_sha256":
+        return False
+    try:
+        iterations = int(parts[1])
+        salt = bytes.fromhex(parts[2])
+        expected = bytes.fromhex(parts[3])
+    except ValueError:
+        return False
+    digest = hashlib.pbkdf2_hmac("sha256", str(password).encode("utf-8"), salt, iterations)
+    return hmac.compare_digest(digest, expected)
+
+
+def public_user(user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": user.get("id", ""),
+        "name": user.get("name", ""),
+        "token": user.get("token", ""),
+        "module": user.get("module", ""),
+        "must_change_password": not bool(user.get("password_changed")),
+        "last_seen_at": user.get("last_seen_at", ""),
+    }
+
+
+def ensure_team_users() -> list[dict[str, Any]]:
+    users = load_json_list(USER_METADATA_FILE)
+    by_name = {str(item.get("name", "")).casefold(): item for item in users if item.get("name")}
+    now = datetime.now().isoformat()
+    changed = False
+    for roster_user in TEAM_USER_ROSTER:
+        key = roster_user["name"].casefold()
+        user = by_name.get(key)
+        if user is None:
+            user = {
+                "id": str(uuid.uuid4()),
+                "name": roster_user["name"],
+                "module": roster_user.get("module", ""),
+                "token": str(uuid.uuid4()),
+                "password_hash": hash_password(DEFAULT_INITIAL_PASSWORD),
+                "password_changed": False,
+                "created_at": now,
+                "last_seen_at": "",
+            }
+            users.append(user)
+            by_name[key] = user
+            changed = True
+            continue
+        if user.get("name") != roster_user["name"]:
+            user["name"] = roster_user["name"]
+            changed = True
+        if user.get("module", "") != roster_user.get("module", ""):
+            user["module"] = roster_user.get("module", "")
+            changed = True
+        if not user.get("id"):
+            user["id"] = str(uuid.uuid4())
+            changed = True
+        if not user.get("token"):
+            user["token"] = str(uuid.uuid4())
+            changed = True
+        if not user.get("password_hash"):
+            user["password_hash"] = hash_password(DEFAULT_INITIAL_PASSWORD)
+            user["password_changed"] = False
+            changed = True
+        if "password_changed" not in user:
+            user["password_changed"] = False
+            changed = True
+    if changed:
+        save_json_list(USER_METADATA_FILE, users)
+    return users
+
+
+def find_user_by_token(token: str | None, *, allow_pending_password: bool = False) -> dict[str, Any] | None:
     if not token:
         return None
-    for user in load_json_list(USER_METADATA_FILE):
+    for user in ensure_team_users():
         if user.get("token") == token:
+            if not allow_pending_password and not bool(user.get("password_changed")):
+                return None
             return user
     return None
 
@@ -1297,10 +1415,7 @@ def resolve_user_from_body(body: dict[str, Any]) -> dict[str, Any] | None:
     user = find_user_by_token(str(body.get("user_token") or ""))
     if user:
         return user
-    name = str(body.get("user_name") or "").strip()
-    if not name:
-        return None
-    return {"id": None, "name": normalize_user_name(name), "token": ""}
+    return None
 
 
 def note_owner_key(user: dict[str, Any] | None) -> str:
@@ -1553,6 +1668,7 @@ async def startup_event() -> None:
     logger.info("Starting literature database app")
     logger.info("Corpus directory: %s", CORPUS_DIR)
     logger.info("Upload directory: %s", UPLOAD_DIR)
+    ensure_team_users()
     thread = threading.Thread(target=init_engine_background, daemon=True)
     thread.start()
 
@@ -1570,25 +1686,61 @@ async def api_auth_login(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     name = normalize_user_name(str(body.get("name", "")))
-    users = load_json_list(USER_METADATA_FILE)
+    password = str(body.get("password", ""))
+    roster_user = team_user_by_name(name)
+    if not roster_user:
+        raise HTTPException(status_code=403, detail="This account is not in the team user list")
+    if not password:
+        raise HTTPException(status_code=400, detail="Password is required")
+
+    users = ensure_team_users()
     now = datetime.now().isoformat()
     for user in users:
-        if str(user.get("name", "")).casefold() == name.casefold():
-            user["name"] = name
+        if str(user.get("name", "")).casefold() == roster_user["name"].casefold():
+            if not user.get("password_hash"):
+                user["password_hash"] = hash_password(DEFAULT_INITIAL_PASSWORD)
+                user["password_changed"] = False
+            if not verify_password(password, str(user.get("password_hash", ""))):
+                raise HTTPException(status_code=401, detail="Incorrect password")
+            user["name"] = roster_user["name"]
+            user["module"] = roster_user.get("module", "")
             user["last_seen_at"] = now
             save_json_list(USER_METADATA_FILE, users)
-            return {"user": user}
+            return {"user": public_user(user)}
 
-    user = {
-        "id": str(uuid.uuid4()),
-        "name": name,
-        "token": str(uuid.uuid4()),
-        "created_at": now,
-        "last_seen_at": now,
-    }
-    users.append(user)
-    save_json_list(USER_METADATA_FILE, users)
-    return {"user": user}
+    raise HTTPException(status_code=500, detail="Team user seed failed")
+
+
+@app.post("/api/auth/change-password")
+async def api_auth_change_password(request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    user = find_user_by_token(str(body.get("user_token") or ""), allow_pending_password=True)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    current_password = str(body.get("current_password", ""))
+    new_password = str(body.get("new_password", ""))
+    if not verify_password(current_password, str(user.get("password_hash", ""))):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    if new_password == DEFAULT_INITIAL_PASSWORD:
+        raise HTTPException(status_code=400, detail="Please choose a password different from the initial password")
+
+    users = ensure_team_users()
+    now = datetime.now().isoformat()
+    for item in users:
+        if item.get("id") == user.get("id"):
+            item["password_hash"] = hash_password(new_password)
+            item["password_changed"] = True
+            item["password_changed_at"] = now
+            item["last_seen_at"] = now
+            save_json_list(USER_METADATA_FILE, users)
+            return {"user": public_user(item)}
+    raise HTTPException(status_code=404, detail="User not found")
 
 
 @app.get("/api/drafts")

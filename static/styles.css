@@ -186,6 +186,21 @@ body::after {
     line-height: 1.6;
 }
 
+.login-fields,
+.password-change-fields {
+    display: grid;
+    gap: 10px;
+}
+
+.password-change-fields {
+    padding-top: 2px;
+}
+
+.password-change-fields .secondary-button {
+    width: 100%;
+    justify-content: center;
+}
+
 .login-card .primary-button {
     width: 100%;
     margin-top: 12px;
