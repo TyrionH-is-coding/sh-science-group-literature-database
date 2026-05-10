@@ -35,6 +35,8 @@ UPLOAD_METADATA_FILE = Path(
 USER_METADATA_FILE = Path(os.environ.get("LITDB_USERS_FILE", UPLOAD_DIR / "users.json")).resolve()
 DRAFT_HISTORY_FILE = Path(os.environ.get("LITDB_DRAFT_HISTORY_FILE", UPLOAD_DIR / "draft_history.json")).resolve()
 PAPER_NOTES_FILE = Path(os.environ.get("LITDB_PAPER_NOTES_FILE", UPLOAD_DIR / "paper_notes.json")).resolve()
+PAPER_TAGS_FILE = Path(os.environ.get("LITDB_PAPER_TAGS_FILE", UPLOAD_DIR / "paper_tags.json")).resolve()
+PAPER_TAG_REGISTRY_FILE = Path(os.environ.get("LITDB_PAPER_TAG_REGISTRY_FILE", UPLOAD_DIR / "paper_tag_registry.json")).resolve()
 WORKSPACE_METADATA_FILE = Path(os.environ.get("LITDB_WORKSPACES_FILE", UPLOAD_DIR / "workspaces.json")).resolve()
 WORKSPACE_UPLOAD_ROOT = Path(os.environ.get("LITDB_WORKSPACE_UPLOAD_ROOT", UPLOAD_DIR / "workspaces")).resolve()
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
@@ -260,6 +262,7 @@ def load_papers() -> list[dict[str, Any]]:
                 "priority_score": metadata.get("priority_score", ""),
                 "aps_modules": metadata.get("aps_modules", ""),
                 "study_types": metadata.get("study_types", ""),
+                "is_clinical_case": metadata.get("is_clinical_case", ""),
                 "primary_text_source": metadata.get("primary_text_source", ""),
                 "knowhere_job_id": metadata.get("knowhere_job_id", ""),
                 "abstract": abstract,
@@ -268,6 +271,99 @@ def load_papers() -> list[dict[str, Any]]:
             }
         )
     return sorted(papers, key=paper_sort_key)
+
+
+def split_multi_value(value: str) -> list[str]:
+    return [item.strip() for item in re.split(r"[;|,]\s*", str(value or "")) if item.strip()]
+
+
+def join_unique_tags(values: list[str]) -> str:
+    seen: set[str] = set()
+    tags: list[str] = []
+    for value in values:
+        clean = re.sub(r"\s+", " ", str(value or "")).strip()[:80]
+        key = clean.casefold()
+        if clean and key not in seen:
+            seen.add(key)
+            tags.append(clean)
+    return "; ".join(tags)
+
+
+def paper_tag_records() -> dict[str, dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    for item in load_json_list(PAPER_TAGS_FILE):
+        pmid = re.sub(r"\D", "", str(item.get("pmid", "")))
+        if pmid:
+            records[pmid] = item
+    return records
+
+
+def custom_tag_registry() -> list[str]:
+    return sorted(
+        {
+            tag
+            for item in load_json_list(PAPER_TAG_REGISTRY_FILE)
+            for tag in split_multi_value(str(item.get("tag", "")))
+        },
+        key=str.casefold,
+    )
+
+
+def paper_matches_modules(paper: dict[str, Any], module_filters: list[str]) -> bool:
+    if not module_filters:
+        return True
+    values = {item.casefold() for item in split_multi_value(str(paper.get("filter_tags") or paper.get("aps_modules") or ""))}
+    requested = {item.casefold() for item in module_filters if item}
+    return bool(values & requested)
+
+
+def priority_values_for_scope(scope: str) -> set[str]:
+    clean = str(scope or "all_priorities_with_cases").strip().lower()
+    if clean == "high_with_cases":
+        return {"high"}
+    if clean == "high_medium_with_cases":
+        return {"high", "medium"}
+    return {"high", "medium", "low"}
+
+
+def is_unclassified_clinical_case(paper: dict[str, Any]) -> bool:
+    priority = str(paper.get("priority", "")).strip().lower()
+    if priority not in {"", "missing", "unassigned", "none", "na", "n/a"}:
+        return False
+    clinical_case = str(paper.get("is_clinical_case", "")).strip().lower()
+    if clinical_case in {"1", "true", "yes", "y"}:
+        return True
+    study_types = str(paper.get("study_types", "")).lower()
+    title = str(paper.get("title", "")).lower()
+    return "case" in study_types or "case report" in title or "case series" in title
+
+
+def paper_matches_priority_scope(paper: dict[str, Any], scope: str) -> bool:
+    priority = str(paper.get("priority", "")).strip().lower()
+    return priority in priority_values_for_scope(scope) or is_unclassified_clinical_case(paper)
+
+
+def filtered_corpus_paths(module_filters: list[str], priority_scope: str = "all_priorities_with_cases") -> list[Path]:
+    if not module_filters and not priority_scope:
+        return []
+    tag_records = paper_tag_records()
+    paths: list[Path] = []
+    for paper in load_papers():
+        pmid = re.sub(r"\D", "", str(paper.get("pmid", "")))
+        custom_tags = split_multi_value(str((tag_records.get(pmid) or {}).get("tags", "")))
+        paper["filter_tags"] = join_unique_tags(split_multi_value(str(paper.get("aps_modules", ""))) + custom_tags)
+        if not paper_matches_modules(paper, module_filters):
+            continue
+        if priority_scope and not paper_matches_priority_scope(paper, priority_scope):
+            continue
+        path = (CORPUS_DIR / str(paper.get("filename", ""))).resolve()
+        try:
+            path.relative_to(CORPUS_DIR)
+        except ValueError:
+            continue
+        if path.exists():
+            paths.append(path)
+    return paths
 
 
 def first_heading(body: str) -> str:
@@ -1118,6 +1214,13 @@ def public_workspace(workspace: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def user_owns_workspace(workspace: dict[str, Any], user: dict[str, Any] | None, body: dict[str, Any]) -> bool:
+    owner_id = str(workspace.get("owner_user_id") or "")
+    owner_name = str(workspace.get("owner_name") or workspace.get("created_by") or "").casefold()
+    request_name = str(body.get("user_name") or "").strip().casefold()
+    return bool(user and owner_id and user.get("id") == owner_id) or bool(request_name and request_name == owner_name)
+
+
 def safe_workspace_upload_name(filename: str) -> str:
     suffix = Path(filename).suffix.lower()
     base = Path(filename).stem
@@ -1945,12 +2048,19 @@ async def api_papers(request: Request):
     pdf_uploads = latest_pdf_uploads_by_pmid()
     user = find_user_by_token(request.query_params.get("user_token"))
     notes = paper_notes_for_user(user)
+    tag_records = paper_tag_records()
     enriched_papers = []
     for paper in papers:
         row = paper_with_pdf_upload(paper, pdf_uploads)
-        note = notes.get(re.sub(r"\D", "", str(row.get("pmid", "")))) or {}
+        pmid = re.sub(r"\D", "", str(row.get("pmid", "")))
+        note = notes.get(pmid) or {}
+        tag_record = tag_records.get(pmid) or {}
+        custom_tags = split_multi_value(str(tag_record.get("tags", "")))
         row["user_note"] = note.get("note", "")
         row["note_updated_at"] = note.get("updated_at", "")
+        row["custom_tags"] = join_unique_tags(custom_tags)
+        row["filter_tags"] = join_unique_tags(split_multi_value(str(row.get("aps_modules", ""))) + custom_tags)
+        row["tag_updated_at"] = tag_record.get("updated_at", "")
         enriched_papers.append(row)
     return {
         "papers": enriched_papers,
@@ -1958,7 +2068,8 @@ async def api_papers(request: Request):
             "count": len(papers),
             "priority_counts": count_by(papers, "priority"),
             "source_counts": count_by(papers, "primary_text_source"),
-            "module_counts": count_multi_value(papers, "aps_modules"),
+            "module_counts": count_multi_value(enriched_papers, "filter_tags"),
+            "custom_tags": custom_tag_registry(),
         },
     }
 
@@ -2036,6 +2147,81 @@ async def api_update_paper_note(pmid: str, request: Request):
     return {"ok": True, "note": updated or {"pmid": safe_pmid, "note": "", "updated_at": now}}
 
 
+@app.patch("/api/papers/{pmid}/tags")
+async def api_update_paper_tags(pmid: str, request: Request):
+    safe_pmid = re.sub(r"\D", "", pmid)
+    if not safe_pmid:
+        raise HTTPException(status_code=400, detail="A numeric PMID is required")
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    user = resolve_user_from_body(body)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+
+    tags_value = body.get("tags", [])
+    if isinstance(tags_value, list):
+        tags = join_unique_tags([str(item) for item in tags_value])
+    else:
+        tags = join_unique_tags(split_multi_value(str(tags_value)))
+    now = datetime.now().isoformat()
+    records = []
+    updated: dict[str, Any] | None = None
+    for item in load_json_list(PAPER_TAGS_FILE):
+        item_pmid = re.sub(r"\D", "", str(item.get("pmid", "")))
+        if item_pmid == safe_pmid:
+            if tags:
+                updated = {
+                    **item,
+                    "pmid": safe_pmid,
+                    "tags": tags,
+                    "updated_by": user.get("name", ""),
+                    "updated_at": now,
+                }
+                records.append(updated)
+            continue
+        records.append(item)
+    if tags and updated is None:
+        updated = {
+            "id": str(uuid.uuid4()),
+            "pmid": safe_pmid,
+            "tags": tags,
+            "created_by": user.get("name", ""),
+            "created_at": now,
+            "updated_by": user.get("name", ""),
+            "updated_at": now,
+        }
+        records.append(updated)
+    save_json_list(PAPER_TAGS_FILE, records[-5000:])
+    return {"ok": True, "tags": updated or {"pmid": safe_pmid, "tags": "", "updated_at": now}}
+
+
+@app.post("/api/tags")
+async def api_create_tag(request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    user = resolve_user_from_body(body)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    tag = re.sub(r"\s+", " ", str(body.get("tag", ""))).strip()[:80]
+    if not tag:
+        raise HTTPException(status_code=400, detail="Tag is required")
+    existing = {item.casefold() for item in custom_tag_registry()}
+    records = load_json_list(PAPER_TAG_REGISTRY_FILE)
+    if tag.casefold() not in existing:
+        records.append({
+            "id": str(uuid.uuid4()),
+            "tag": tag,
+            "created_by": user.get("name", ""),
+            "created_at": datetime.now().isoformat(),
+        })
+        save_json_list(PAPER_TAG_REGISTRY_FILE, records[-500:])
+    return {"ok": True, "tags": custom_tag_registry()}
+
+
 @app.get("/api/papers/{pmid}/evidence")
 async def api_paper_evidence(pmid: str):
     detail = get_paper_by_pmid(pmid)
@@ -2088,6 +2274,33 @@ async def api_create_workspace(request: Request):
     return {"workspace": public_workspace(workspace)}
 
 
+@app.patch("/api/workspaces/{workspace_id}")
+async def api_update_workspace(workspace_id: str, request: Request):
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    user = find_user_by_token(str(body.get("user_token") or ""))
+    workspaces = load_workspaces()
+    target: dict[str, Any] | None = None
+    for item in workspaces:
+        if item.get("id") == workspace_id:
+            target = item
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if not user_owns_workspace(target, user, body):
+        raise HTTPException(status_code=403, detail="Only the workspace owner can edit this workspace")
+    name = re.sub(r"\s+", " ", str(body.get("name", target.get("name", ""))).strip())
+    if not name:
+        raise HTTPException(status_code=400, detail="Workspace name is required")
+    target["name"] = name[:100]
+    target["description"] = str(body.get("description", target.get("description", ""))).strip()[:300]
+    target["updated_at"] = datetime.now().isoformat()
+    save_workspaces(workspaces)
+    return {"workspace": public_workspace(target)}
+
+
 @app.delete("/api/workspaces/{workspace_id}")
 async def api_delete_workspace(workspace_id: str, request: Request):
     workspace = find_workspace(workspace_id)
@@ -2099,11 +2312,7 @@ async def api_delete_workspace(workspace_id: str, request: Request):
     if library_type == "team":
         raise HTTPException(status_code=403, detail="Team workspaces can only be deleted by administrators")
     user = find_user_by_token(str(body.get("user_token") or ""))
-    owner_id = str(workspace.get("owner_user_id") or "")
-    owner_name = str(workspace.get("owner_name") or workspace.get("created_by") or "").casefold()
-    request_name = str(body.get("user_name") or "").strip().casefold()
-    owns_workspace = bool(user and owner_id and user.get("id") == owner_id) or bool(request_name and request_name == owner_name)
-    if not owns_workspace:
+    if not user_owns_workspace(workspace, user, body):
         raise HTTPException(status_code=403, detail="Only the workspace owner can delete this workspace")
     target_dir = workspace_dir(workspace_id)
     workspaces = [item for item in load_workspaces() if item.get("id") != workspace_id]
@@ -2261,8 +2470,14 @@ async def api_query(request: Request):
     question = str(body.get("question", "")).strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question is required")
+    module_filters = [
+        str(item).strip()
+        for item in (body.get("module_filters") or [])
+        if str(item).strip()
+    ]
+    priority_scope = str(body.get("priority_scope") or "").strip()
 
-    if not _engine_ready:
+    if not _engine_ready and not module_filters and not priority_scope:
         raise HTTPException(
             status_code=503,
             detail={
@@ -2271,12 +2486,20 @@ async def api_query(request: Request):
             },
         )
 
-    from paperqa_engine import query as engine_query
-
     k = int(body.get("k", 10))
     max_sources = int(body.get("max_sources", 5))
     try:
-        result = await engine_query(question=question, k=k, max_sources=max_sources)
+        if module_filters or priority_scope:
+            paths = filtered_corpus_paths(module_filters, priority_scope or "all_priorities_with_cases")
+            if not paths:
+                raise HTTPException(status_code=400, detail="No papers match the selected evidence filters")
+            from paperqa_engine import query_files
+            result = await query_files(question=question, file_paths=paths, k=k, max_sources=max_sources)
+            result["module_filters"] = module_filters
+            result["priority_scope"] = priority_scope or "all_priorities_with_cases"
+        else:
+            from paperqa_engine import query as engine_query
+            result = await engine_query(question=question, k=k, max_sources=max_sources)
         result["contexts"] = enrich_contexts_with_evidence(result.get("contexts", []))
         answer_segments = parse_answer_citation_segments(str(result.get("answer", "")))
         result["answer_segments"] = answer_segments
@@ -2287,6 +2510,8 @@ async def api_query(request: Request):
         result["llm"] = result.get("llm") or llm_runtime_config()["paperqa"]
         result["draft_llm"] = llm_runtime_config()["draft"]
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("PaperQA query failed")
         raise HTTPException(status_code=500, detail=str(exc))

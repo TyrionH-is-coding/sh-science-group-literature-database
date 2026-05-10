@@ -312,6 +312,7 @@ body::after {
 }
 
 .workspace-enter-button,
+.workspace-edit-button,
 .text-button.workspace-delete-button {
     display: inline-flex;
     align-items: center;
@@ -321,6 +322,25 @@ body::after {
     border-radius: 999px;
     font-size: 13px;
     font-weight: 700;
+}
+
+.workspace-edit-button {
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid rgba(123, 106, 210, 0.2);
+    border-radius: 999px;
+    color: #5a4aa6;
+    background: rgba(246, 243, 255, 0.86);
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 10px 22px rgba(117, 108, 174, 0.06);
+    cursor: pointer;
+}
+
+.workspace-edit-button:hover {
+    border-color: rgba(123, 106, 210, 0.38);
+    background: rgba(240, 236, 255, 0.98);
+    transform: translateY(-1px);
 }
 
 .workspace-enter-button {
@@ -361,6 +381,32 @@ body::after {
     background: #fff7f5;
     box-shadow: 0 12px 26px rgba(180, 35, 24, 0.1);
     transform: translateY(-1px);
+}
+
+.workspace-card-description {
+    color: var(--text-soft);
+    font-size: 14px;
+    line-height: 1.55;
+}
+
+.workspace-edit-form {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(128, 116, 188, 0.16);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.workspace-edit-description {
+    min-height: 82px;
+}
+
+.workspace-edit-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .project-kicker {
@@ -1050,6 +1096,17 @@ h2 {
     font-size: 13px;
 }
 
+.tag-create-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.paper-tags-card {
+    gap: 10px;
+}
+
 .progress-message {
     min-height: 0;
 }
@@ -1649,6 +1706,18 @@ h2 {
     gap: 10px;
 }
 
+.query-scope-field,
+.outline-priority-scope {
+    display: grid;
+    gap: 7px;
+}
+
+.outline-priority-scope small {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
 .query-input {
     min-height: 130px;
     padding: 12px;
@@ -2127,6 +2196,10 @@ h2 {
 
 .article-compose-actions .primary-button,
 .article-compose-actions .secondary-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
     padding: 0 14px;
 }
 
@@ -2572,6 +2645,55 @@ h2 {
     margin: 2px 0 0;
     font-size: 16px;
     font-weight: 650;
+}
+
+.outline-module-filter {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(128, 116, 188, 0.14);
+    border-radius: 16px;
+    background: rgba(250, 249, 255, 0.68);
+}
+
+.outline-module-filter strong {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 680;
+}
+
+.outline-module-filter small {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.module-check-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.module-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid rgba(128, 116, 188, 0.16);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--text-soft);
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.module-check input {
+    margin: 0;
+    accent-color: #7b6ad2;
 }
 
 .outline-evidence-panel {

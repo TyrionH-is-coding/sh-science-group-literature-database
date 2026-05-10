@@ -151,6 +151,10 @@
                     <select id="module-filter" class="text-input">
                         <option value="" data-i18n="allModules">All modules</option>
                     </select>
+                    <div class="tag-create-row">
+                        <input id="new-tag-input" class="text-input" type="text" data-i18n-placeholder="newTagPlaceholder" placeholder="New tag">
+                        <button class="secondary-button small-button" id="create-tag-button" type="button" data-i18n="createTag">Add tag</button>
+                    </div>
                 </section>
 
                 <section class="panel evidence-library-panel">
@@ -236,6 +240,14 @@
                     <div class="query-layout">
                         <form id="query-form" class="query-form">
                             <textarea id="query-input" class="query-input" data-i18n-placeholder="queryPlaceholder" placeholder="Ask a focused APS question."></textarea>
+                            <label class="field-label query-scope-field" for="query-priority-scope">
+                                <span data-i18n="evidencePriorityScope">Evidence priority</span>
+                                <select id="query-priority-scope" class="text-input">
+                                    <option value="high_with_cases" data-i18n="scopeHighCases">High priority only</option>
+                                    <option value="high_medium_with_cases" data-i18n="scopeHighMediumCases">High + medium priority</option>
+                                    <option value="all_priorities_with_cases" data-i18n="scopeAllPriorityCases" selected>High + medium + low priority</option>
+                                </select>
+                            </label>
                             <div class="query-controls">
                                 <button class="primary-button" type="submit" data-i18n="askButton">Ask</button>
                                 <button class="secondary-button" type="button" data-question="What are the current diagnostic criteria for APS?" data-i18n="criteria">Criteria</button>

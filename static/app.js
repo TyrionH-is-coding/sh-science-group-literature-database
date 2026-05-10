@@ -3,6 +3,7 @@ const state = {
     filteredPapers: [],
     selectedPmid: null,
     moduleCounts: {},
+    customTags: [],
     paperPage: 1,
     pageSize: 50,
     notesOnly: localStorage.getItem("litdb.notesOnly") === "1",
@@ -55,6 +56,12 @@ const i18n = {
         createWorkspace: "Create workspace",
         workspaceCreated: "Workspace created.",
         workspaceCreateFailed: "Could not create workspace.",
+        editWorkspace: "Edit info",
+        saveWorkspaceInfo: "Save info",
+        cancelWorkspaceEdit: "Cancel",
+        workspaceDescriptionPlaceholder: "Library description",
+        workspaceUpdated: "Library info updated.",
+        workspaceUpdateFailed: "Could not update library.",
         deleteWorkspace: "Delete library",
         deleteWorkspaceConfirm: "Delete this library and its uploaded files?",
         deleteWorkspaceBlocked: "Team libraries can only be deleted by administrators.",
@@ -94,6 +101,23 @@ const i18n = {
         priorityLow: "Low priority",
         module: "Module",
         allModules: "All modules",
+        createTag: "Add tag",
+        newTagPlaceholder: "New filter tag",
+        tagCreated: "Tag added.",
+        tagCreateFailed: "Could not add tag.",
+        paperTags: "Paper tags",
+        paperTagsPlaceholder: "Separate tags with comma or semicolon",
+        savePaperTags: "Save tags",
+        paperTagsSaved: "Tags saved.",
+        paperTagsFailed: "Could not save tags.",
+        searchWithinModules: "Search within modules",
+        allCorpusModules: "All corpus modules",
+        moduleScopedSearchHint: "Checked modules restrict PaperQA retrieval to those papers.",
+        evidencePriorityScope: "Evidence priority",
+        scopeHighCases: "High priority only",
+        scopeHighMediumCases: "High + medium priority",
+        scopeAllPriorityCases: "High + medium + low priority",
+        priorityScopedSearchHint: "Unclassified clinical cases are kept automatically.",
         evidenceLibrary: "Evidence Library",
         evidenceLibraryHint: "Checked PaperQA sentences and article-page selections are saved here.",
         noEvidenceSaved: "No selected sentences yet.",
@@ -351,6 +375,12 @@ const i18n = {
         createWorkspace: "创建工作区",
         workspaceCreated: "工作区已创建。",
         workspaceCreateFailed: "无法创建工作区。",
+        editWorkspace: "编辑信息",
+        saveWorkspaceInfo: "保存信息",
+        cancelWorkspaceEdit: "取消",
+        workspaceDescriptionPlaceholder: "文献库简介",
+        workspaceUpdated: "文献库信息已更新。",
+        workspaceUpdateFailed: "无法更新文献库。",
         deleteWorkspace: "删除文献库",
         deleteWorkspaceConfirm: "确定删除这个文献库和其中已上传的文件吗？",
         deleteWorkspaceBlocked: "多人合作文献库仅管理员可删除。",
@@ -390,6 +420,23 @@ const i18n = {
         priorityLow: "低优先度",
         module: "模块",
         allModules: "全部模块",
+        createTag: "新增标签",
+        newTagPlaceholder: "新筛选标签",
+        tagCreated: "标签已新增。",
+        tagCreateFailed: "无法新增标签。",
+        paperTags: "文献标签",
+        paperTagsPlaceholder: "多个标签用逗号或分号分隔",
+        savePaperTags: "保存标签",
+        paperTagsSaved: "标签已保存。",
+        paperTagsFailed: "无法保存标签。",
+        searchWithinModules: "限定检索模块",
+        allCorpusModules: "全部文献模块",
+        moduleScopedSearchHint: "勾选模块后，PaperQA 只在对应模块文献中检索。",
+        evidencePriorityScope: "证据优先级",
+        scopeHighCases: "仅高优先度",
+        scopeHighMediumCases: "高 + 中优先度",
+        scopeAllPriorityCases: "高 + 中 + 低优先度",
+        priorityScopedSearchHint: "未归类临床 Case 会自动保留。",
         evidenceLibrary: "自选库",
         evidenceLibraryHint: "勾选 PaperQA 句子，或在原文页点击句子后会保存到这里。",
         noEvidenceSaved: "还没有选择句子。",
@@ -693,6 +740,8 @@ const els = {
     pageTotal: document.getElementById("page-total"),
     priorityFilter: document.getElementById("priority-filter"),
     moduleFilter: document.getElementById("module-filter"),
+    newTagInput: document.getElementById("new-tag-input"),
+    createTagButton: document.getElementById("create-tag-button"),
     libraryCount: document.getElementById("library-count"),
     libraryList: document.getElementById("library-list"),
     clearLibrary: document.getElementById("clear-library"),
@@ -705,6 +754,7 @@ const els = {
     paperDetail: document.getElementById("paper-detail"),
     queryForm: document.getElementById("query-form"),
     queryInput: document.getElementById("query-input"),
+    queryPriorityScope: document.getElementById("query-priority-scope"),
     answerPanel: document.getElementById("answer-panel"),
     uploadForm: document.getElementById("upload-form"),
     uploadFile: document.getElementById("upload-file"),
@@ -800,6 +850,12 @@ function canDeleteWorkspace(workspace) {
     return Boolean(workspace.owner_name && state.userName && workspace.owner_name.toLowerCase() === state.userName.toLowerCase());
 }
 
+function canEditWorkspace(workspace) {
+    if (!workspace) return false;
+    if (workspace.owner_user_id && state.userId) return workspace.owner_user_id === state.userId;
+    return Boolean(workspace.owner_name && state.userName && workspace.owner_name.toLowerCase() === state.userName.toLowerCase());
+}
+
 function bindLogin() {
     els.loginForm.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -879,10 +935,20 @@ function renderCustomWorkspaces() {
             <button class="workspace-card-open" type="button" data-workspace-id="${escapeHtml(workspace.id)}">
                 <span class="project-kicker">${escapeHtml(workspaceTypeLabel(workspace))} · ${escapeHtml(t("customWorkspace"))}</span>
                 <strong>${escapeHtml(workspace.name)}</strong>
+                ${workspace.description ? `<span class="workspace-card-description">${escapeHtml(workspace.description)}</span>` : ""}
                 <span>${escapeHtml(workspace.document_count || 0)} ${escapeHtml(t("pdfFiles"))}${workspace.requires_pmid ? ` · PMID` : ""}</span>
             </button>
+            <form class="workspace-edit-form hidden" data-edit-form="${escapeHtml(workspace.id)}">
+                <input class="text-input workspace-edit-name" type="text" value="${escapeHtml(workspace.name)}" placeholder="${escapeHtml(t("newWorkspacePlaceholder"))}">
+                <textarea class="query-input workspace-edit-description" placeholder="${escapeHtml(t("workspaceDescriptionPlaceholder"))}">${escapeHtml(workspace.description || "")}</textarea>
+                <div class="workspace-edit-actions">
+                    <button class="primary-button small-button" type="submit">${escapeHtml(t("saveWorkspaceInfo"))}</button>
+                    <button class="secondary-button small-button cancel-workspace-edit" type="button" data-cancel-edit-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("cancelWorkspaceEdit"))}</button>
+                </div>
+            </form>
             <div class="workspace-card-actions">
                 <button class="workspace-enter-button" type="button" data-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("enterProject"))}</button>
+                <button class="workspace-edit-button ${canEditWorkspace(workspace) ? "" : "hidden"}" type="button" data-edit-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("editWorkspace"))}</button>
                 <button class="text-button workspace-delete-button ${canDeleteWorkspace(workspace) ? "" : "hidden"}" type="button" data-delete-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("deleteWorkspace"))}</button>
                 <span class="workspace-delete-note ${workspace.library_type === "team" ? "" : "hidden"}">${escapeHtml(t("deleteWorkspaceBlocked"))}</span>
             </div>
@@ -894,6 +960,55 @@ function renderCustomWorkspaces() {
     els.customWorkspaces.querySelectorAll("[data-delete-workspace-id]").forEach((button) => {
         button.addEventListener("click", () => deleteWorkspace(button.dataset.deleteWorkspaceId));
     });
+    els.customWorkspaces.querySelectorAll("[data-edit-workspace-id]").forEach((button) => {
+        button.addEventListener("click", () => toggleWorkspaceEdit(button.dataset.editWorkspaceId, true));
+    });
+    els.customWorkspaces.querySelectorAll("[data-cancel-edit-workspace-id]").forEach((button) => {
+        button.addEventListener("click", () => toggleWorkspaceEdit(button.dataset.cancelEditWorkspaceId, false));
+    });
+    els.customWorkspaces.querySelectorAll(".workspace-edit-form").forEach((form) => {
+        form.addEventListener("submit", updateWorkspaceInfo);
+    });
+}
+
+function toggleWorkspaceEdit(workspaceId, open) {
+    const form = Array.from(els.customWorkspaces.querySelectorAll(".workspace-edit-form"))
+        .find((item) => item.dataset.editForm === workspaceId);
+    if (!form) return;
+    form.classList.toggle("hidden", !open);
+    if (open) form.querySelector(".workspace-edit-name")?.focus();
+}
+
+async function updateWorkspaceInfo(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const workspaceId = form.dataset.editForm;
+    if (!workspaceId) return;
+    const name = form.querySelector(".workspace-edit-name")?.value.trim() || "";
+    const description = form.querySelector(".workspace-edit-description")?.value.trim() || "";
+    if (!name) return;
+    try {
+        const result = await fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name,
+                description,
+                user_token: state.userToken,
+                user_name: state.userName,
+            }),
+        });
+        state.customWorkspaces = state.customWorkspaces.map((item) => item.id === workspaceId ? result.workspace : item);
+        if (activeWorkspaceId() === workspaceId) {
+            state.activeWorkspace = result.workspace;
+        }
+        renderCustomWorkspaces();
+        refreshUserState();
+        els.workspaceMessage.textContent = t("workspaceUpdated");
+        els.workspaceMessage.className = "form-message success-text";
+    } catch (error) {
+        window.alert(`${t("workspaceUpdateFailed")} ${formatError(error.message)}`);
+    }
 }
 
 async function deleteWorkspace(workspaceId) {
@@ -1087,6 +1202,7 @@ function refreshUserState() {
     document.querySelector("[data-i18n='tabPapers']").textContent = custom ? t("pdfFiles") : t("tabPapers");
     els.uploadPmid.classList.toggle("hidden", custom && !activeWorkspaceRequiresPmid());
     els.priorityFilter.closest(".panel").classList.toggle("hidden", custom);
+    els.queryPriorityScope?.closest(".query-scope-field")?.classList.toggle("hidden", custom);
     els.paperPagination.classList.toggle("hidden", custom);
     els.queryInput.placeholder = custom ? t("workspaceQueryPlaceholder") : t("queryPlaceholder");
     els.draftHistoryChip.disabled = !state.userToken;
@@ -1136,6 +1252,7 @@ function bindFilters() {
             }
         });
     });
+    els.createTagButton?.addEventListener("click", createCustomTag);
 }
 
 function bindPagination() {
@@ -1302,10 +1419,33 @@ async function loadPapers() {
         const data = await fetchJson(`/api/papers${noteQuery}`);
         state.papers = data.papers || [];
         state.moduleCounts = data.summary ? data.summary.module_counts : {};
+        state.customTags = data.summary ? (data.summary.custom_tags || []) : [];
         populateModuleFilter(state.moduleCounts);
         applyFilters();
     } catch (error) {
         els.papersBody.innerHTML = `<tr><td colspan="3" class="error-text">${escapeHtml(t("couldNotLoadPapers"))}: ${escapeHtml(error.message)}</td></tr>`;
+    }
+}
+
+async function createCustomTag() {
+    const tag = els.newTagInput?.value.trim() || "";
+    if (!tag) return;
+    try {
+        const result = await fetchJson("/api/tags", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                tag,
+                user_token: state.userToken,
+                user_name: state.userName,
+            }),
+        });
+        state.customTags = result.tags || [...state.customTags, tag];
+        if (els.newTagInput) els.newTagInput.value = "";
+        if (!state.moduleCounts[tag]) state.moduleCounts[tag] = 0;
+        populateModuleFilter(state.moduleCounts);
+    } catch (error) {
+        window.alert(`${t("tagCreateFailed")} ${formatError(error.message)}`);
     }
 }
 
@@ -1376,7 +1516,10 @@ function fileTypeLabel(item) {
 }
 
 function populateModuleFilter(moduleCounts) {
-    const modules = Object.keys(moduleCounts || {}).filter((item) => item !== "missing").sort();
+    const modules = [...new Set([
+        ...Object.keys(moduleCounts || {}).filter((item) => item !== "missing"),
+        ...(state.customTags || []),
+    ])].sort((a, b) => a.localeCompare(b));
     const selected = els.moduleFilter.value;
     els.moduleFilter.innerHTML = `<option value="">${escapeHtml(t("allModules"))}</option>` + modules
         .map((moduleName) => `<option value="${escapeHtml(moduleName)}">${escapeHtml(formatModuleLabel(moduleName))} (${moduleCounts[moduleName]})</option>`)
@@ -1405,8 +1548,10 @@ function applyFilters() {
             paper.journal,
             paper.year,
             paper.aps_modules,
+            paper.custom_tags,
+            paper.filter_tags,
             paper.study_types,
-            compactModules(paper.aps_modules),
+            compactModules(paper.filter_tags || paper.aps_modules),
         ].join(" ").toLowerCase();
         const noteHaystack = String(paper.user_note || "").toLowerCase();
 
@@ -1414,7 +1559,7 @@ function applyFilters() {
             && (!noteQuery || noteHaystack.includes(noteQuery))
             && (!notesOnly || noteHaystack.length > 0)
             && (!priority || String(paper.priority).toLowerCase() === priority)
-            && (!moduleName || String(paper.aps_modules).includes(moduleName));
+            && (!moduleName || splitTags(paper.filter_tags || paper.aps_modules).some((tag) => tag === moduleName));
     });
 
     state.paperPage = Math.min(state.paperPage, pageCount());
@@ -1465,7 +1610,7 @@ function renderPapers() {
                 <span class="paper-meta">PMID ${escapeHtml(paper.pmid)} · ${escapeHtml(paper.year || "n.d.")} · ${escapeHtml(paper.journal || t("unknownJournal"))}</span>
             </td>
             <td><span class="priority ${escapeHtml(String(paper.priority).toLowerCase())}">${escapeHtml(localizePriority(paper.priority || t("missing")))}</span></td>
-            <td><span class="module-label">${escapeHtml(compactModules(paper.aps_modules))}</span></td>
+            <td><span class="module-label">${escapeHtml(compactModules(paper.filter_tags || paper.aps_modules))}</span></td>
         </tr>
     `).join("");
 
@@ -1488,7 +1633,7 @@ async function selectPaper(pmid) {
         <dl class="detail-grid">
             <div><dt>${escapeHtml(t("journal"))}</dt><dd>${escapeHtml(paper.journal || t("unknownJournal"))}</dd></div>
             <div><dt>${escapeHtml(t("priority"))}</dt><dd>${escapeHtml(localizePriority(paper.priority || t("missing")))}</dd></div>
-            <div><dt>${escapeHtml(t("module"))}</dt><dd>${escapeHtml(compactModules(paper.aps_modules))}</dd></div>
+            <div><dt>${escapeHtml(t("module"))}</dt><dd>${escapeHtml(compactModules(paper.filter_tags || paper.aps_modules))}</dd></div>
             <div><dt>${escapeHtml(t("studyType"))}</dt><dd>${escapeHtml(paper.study_types || t("missing"))}</dd></div>
             <div><dt>DOI</dt><dd>${escapeHtml(paper.doi || t("missing"))}</dd></div>
             <div><dt>PDF</dt><dd><span class="pdf-status ${pdfUpload ? "available" : ""}">${escapeHtml(pdfUpload ? t("pdfAvailable") : t("pdfMissing"))}</span></dd></div>
@@ -1505,9 +1650,18 @@ async function selectPaper(pmid) {
             <textarea id="paper-note-input" class="paper-note-input" placeholder="${escapeHtml(t("paperNotePlaceholder"))}">${escapeHtml(userNote)}</textarea>
             <button class="secondary-button small-button" id="save-paper-note" type="button">${escapeHtml(t("savePaperNote"))}</button>
         </section>
+        <section class="paper-note-card paper-tags-card">
+            <div class="paper-note-head">
+                <label class="panel-label" for="paper-tags-input">${escapeHtml(t("paperTags"))}</label>
+                <span class="paper-note-status" id="paper-tags-status"></span>
+            </div>
+            <input id="paper-tags-input" class="text-input" type="text" placeholder="${escapeHtml(t("paperTagsPlaceholder"))}" value="${escapeHtml(paper.custom_tags || "")}">
+            <button class="secondary-button small-button" id="save-paper-tags" type="button">${escapeHtml(t("savePaperTags"))}</button>
+        </section>
         <p class="abstract">${escapeHtml(paper.abstract || t("noAbstract"))}</p>
     `;
     document.getElementById("save-paper-note")?.addEventListener("click", () => savePaperNote(paper.pmid));
+    document.getElementById("save-paper-tags")?.addEventListener("click", () => savePaperTags(paper.pmid));
 }
 
 async function savePaperNote(pmid) {
@@ -1537,6 +1691,49 @@ async function savePaperNote(pmid) {
     }
 }
 
+async function savePaperTags(pmid) {
+    const input = document.getElementById("paper-tags-input");
+    const status = document.getElementById("paper-tags-status");
+    const tags = input?.value || "";
+    if (status) status.textContent = "";
+    try {
+        const result = await fetchJson(`/api/papers/${encodeURIComponent(pmid)}/tags`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                user_token: state.userToken,
+                user_name: state.userName,
+                tags,
+            }),
+        });
+        const paper = state.papers.find((item) => item.pmid === pmid);
+        if (paper) {
+            paper.custom_tags = result.tags?.tags || "";
+            paper.filter_tags = joinTagValues([paper.aps_modules, paper.custom_tags]);
+            paper.tag_updated_at = result.tags?.updated_at || "";
+        }
+        for (const tag of splitTags(tags)) {
+            if (!state.customTags.some((item) => item.toLowerCase() === tag.toLowerCase())) state.customTags.push(tag);
+        }
+        state.moduleCounts = buildModuleCountsFromPapers();
+        populateModuleFilter(state.moduleCounts);
+        if (status) status.textContent = t("paperTagsSaved");
+        applyFilters();
+    } catch (error) {
+        if (status) status.textContent = `${t("paperTagsFailed")} ${formatError(error.message)}`;
+    }
+}
+
+function buildModuleCountsFromPapers() {
+    const counts = {};
+    for (const paper of state.papers) {
+        for (const tag of splitTags(paper.filter_tags || paper.aps_modules)) {
+            counts[tag] = (counts[tag] || 0) + 1;
+        }
+    }
+    return counts;
+}
+
 async function askPaperQA(question) {
     state.evidenceByKey = {};
     els.answerPanel.innerHTML = renderProgressNotice(t("searchingCorpus"));
@@ -1544,10 +1741,11 @@ async function askPaperQA(question) {
         const endpoint = isCustomWorkspace()
             ? `/api/workspaces/${encodeURIComponent(activeWorkspaceId())}/paperqa/query`
             : "/api/paperqa/query";
+        const priorityScope = isCustomWorkspace() ? "" : (els.queryPriorityScope?.value || "all_priorities_with_cases");
         const result = await fetchJson(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question, k: 10, max_sources: 5 }),
+            body: JSON.stringify({ question, k: 10, max_sources: 5, priority_scope: priorityScope }),
         });
 
         renderLlmInfo({ paperqa: result.llm, draft: result.draft_llm });
@@ -2152,6 +2350,8 @@ function renderOutlineDetail() {
                     <h4>${escapeHtml(t("outlineRetrievalQuery"))}</h4>
                 </div>
             </div>
+            ${renderOutlinePriorityScope(section)}
+            ${renderOutlineModuleFilters(section)}
             <textarea id="outline-query" class="query-input compact-query" placeholder="${escapeHtml(t("outlineQueryPlaceholder"))}">${escapeHtml(query)}</textarea>
             <div class="outline-actions">
                 <button class="primary-button small-button" id="outline-retrieve" type="button">${escapeHtml(t("retrieveSectionEvidence"))}</button>
@@ -2194,6 +2394,55 @@ function renderOutlineDetail() {
             state.outlineRetrieval[section.id] = current;
         });
     });
+}
+
+function renderOutlinePriorityScope(section) {
+    if (isCustomWorkspace()) return "";
+    const selected = (state.outlineRetrieval[section.id] || {}).priorityScope || "all_priorities_with_cases";
+    return `
+        <label class="field-label outline-priority-scope">
+            ${escapeHtml(t("evidencePriorityScope"))}
+            <select id="outline-priority-scope" class="text-input">
+                <option value="high_with_cases" ${selected === "high_with_cases" ? "selected" : ""}>${escapeHtml(t("scopeHighCases"))}</option>
+                <option value="high_medium_with_cases" ${selected === "high_medium_with_cases" ? "selected" : ""}>${escapeHtml(t("scopeHighMediumCases"))}</option>
+                <option value="all_priorities_with_cases" ${selected === "all_priorities_with_cases" ? "selected" : ""}>${escapeHtml(t("scopeAllPriorityCases"))}</option>
+            </select>
+            <small>${escapeHtml(t("priorityScopedSearchHint"))}</small>
+        </label>
+    `;
+}
+
+function renderOutlineModuleFilters(section) {
+    if (isCustomWorkspace()) return "";
+    const modules = Object.keys(state.moduleCounts || {}).filter((item) => item !== "missing").sort((a, b) => a.localeCompare(b));
+    if (!modules.length) return "";
+    const selected = (state.outlineRetrieval[section.id] || {}).moduleFilters || [];
+    return `
+        <div class="outline-module-filter">
+            <div>
+                <strong>${escapeHtml(t("searchWithinModules"))}</strong>
+                <small>${escapeHtml(t("moduleScopedSearchHint"))}</small>
+            </div>
+            <div class="module-check-list">
+                ${modules.map((moduleName) => `
+                    <label class="module-check">
+                        <input class="outline-module-check" type="checkbox" value="${escapeHtml(moduleName)}" ${selected.includes(moduleName) ? "checked" : ""}>
+                        <span>${escapeHtml(formatModuleLabel(moduleName))}</span>
+                    </label>
+                `).join("")}
+            </div>
+        </div>
+    `;
+}
+
+function selectedOutlineModules() {
+    return Array.from(els.outlineDetail.querySelectorAll(".outline-module-check:checked"))
+        .map((input) => input.value)
+        .filter(Boolean);
+}
+
+function selectedOutlinePriorityScope() {
+    return document.getElementById("outline-priority-scope")?.value || "all_priorities_with_cases";
 }
 
 function renderOutlineEvidenceChoice(context, index) {
@@ -2245,7 +2494,9 @@ async function retrieveOutlineEvidence(section) {
     const queryNode = document.getElementById("outline-query");
     const question = (queryNode?.value || defaultOutlineQuery(section)).trim();
     if (!question) return;
-    state.outlineRetrieval[section.id] = { query: question, contexts: [] };
+    const moduleFilters = selectedOutlineModules();
+    const priorityScope = isCustomWorkspace() ? "" : selectedOutlinePriorityScope();
+    state.outlineRetrieval[section.id] = { query: question, contexts: [], moduleFilters, priorityScope };
     els.outlineDetail.querySelector(".outline-evidence-list").innerHTML = renderProgressNotice(t("searchingCorpus"));
     try {
         const endpoint = isCustomWorkspace()
@@ -2254,14 +2505,14 @@ async function retrieveOutlineEvidence(section) {
         const result = await fetchJson(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question, k: 10, max_sources: 8 }),
+            body: JSON.stringify({ question, k: 10, max_sources: 8, module_filters: moduleFilters, priority_scope: priorityScope }),
         });
         const contexts = (result.contexts || []).map(normalizeOutlineContext);
-        state.outlineRetrieval[section.id] = { query: question, contexts, selectedKeys: contexts.map((item) => item.key) };
+        state.outlineRetrieval[section.id] = { query: question, contexts, selectedKeys: contexts.map((item) => item.key), moduleFilters, priorityScope };
         renderLlmInfo({ paperqa: result.llm, draft: result.draft_llm });
         renderOutlineDetail();
     } catch (error) {
-        state.outlineRetrieval[section.id] = { query: question, contexts: [] };
+        state.outlineRetrieval[section.id] = { query: question, contexts: [], moduleFilters, priorityScope };
         els.outlineDetail.querySelector(".outline-evidence-list").innerHTML = `<p class="error-text">${escapeHtml(formatError(error.message))}</p>`;
     }
 }
@@ -3299,7 +3550,26 @@ function renderProgressNotice(message, isCompact = false) {
 
 function compactModules(value) {
     if (!value) return t("missing");
-    return String(value).split(/[;|,]/).map((item) => formatModuleLabel(item.trim())).filter(Boolean).join(", ");
+    return splitTags(value).map((item) => formatModuleLabel(item)).filter(Boolean).join(", ");
+}
+
+function splitTags(value) {
+    return String(value || "").split(/[;|,]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function joinTagValues(values) {
+    const seen = new Set();
+    const tags = [];
+    for (const value of values) {
+        for (const tag of splitTags(value)) {
+            const key = tag.toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                tags.push(tag);
+            }
+        }
+    }
+    return tags.join("; ");
 }
 
 function formatModuleLabel(value) {

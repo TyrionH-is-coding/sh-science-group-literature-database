@@ -6,7 +6,7 @@ Runs PaperQA2 on 196 APS literature markdown files using DeepSeek via LangChain 
 Uses sparse embedding (no API key needed) for indexing.
 
 Usage:
-    cd /root/APS_Review && source ~/envs/asreview/bin/activate && python3 paperqa_pilot.py
+    cd /root/APS_Review && source ~/envs/asreview/bin/activate && python3 scripts/paperqa_pilot.py
 
 Important:
     - DEEPSEEK_API_KEY must be set (it's in ~/.bashrc)
@@ -23,7 +23,7 @@ from pathlib import Path
 
 # ── Configuration ──
 MD_DIR = "/root/APS_Review/paperqa_import/high_medium_ready"
-RESULTS_FILE = "/root/APS_Review/paperqa_pilot_results.md"
+RESULTS_FILE = "/root/APS_Review/docs/paperqa_pilot_results.md"
 
 SAMPLE_QUESTIONS = [
     "What are the current diagnostic criteria for Antiphospholipid Syndrome (APS)?",
@@ -65,7 +65,7 @@ async def main():
     api_key = get_api_key()
     if not api_key:
         print("ERROR: DEEPSEEK_API_KEY not found.")
-        print("Run with: bash -l -i -c 'source ~/envs/asreview/bin/activate && python3 paperqa_pilot.py'")
+        print("Run with: bash -l -i -c 'source ~/envs/asreview/bin/activate && python3 scripts/paperqa_pilot.py'")
         sys.exit(1)
     print(f"\n[0/6] DeepSeek API key: {api_key[:8]}... (len={len(api_key)})")
 
@@ -148,6 +148,7 @@ async def main():
     # ── Step 5: Save results ──
     print(f"\n[5/6] Saving results to {RESULTS_FILE}...")
     from datetime import datetime
+    Path(RESULTS_FILE).parent.mkdir(parents=True, exist_ok=True)
 
     with open(RESULTS_FILE, "w", encoding="utf-8") as f:
         f.write("# PaperQA2 Pilot Results — APS Systematic Review\n\n")

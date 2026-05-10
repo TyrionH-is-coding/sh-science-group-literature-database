@@ -249,12 +249,16 @@ async def query_files(
         source_name = getattr(text_obj, "name", "") or f"source_{index}"
         source_stem = str(source_name).split()[0]
         path = path_by_stem.get(source_stem)
+        pmid_match = re.search(r"pmid[:_\s-]*(\d+)", source_name or "", re.IGNORECASE)
+        if not pmid_match and path:
+            pmid_match = re.search(r"pmid[:_\s-]*(\d+)", path.stem, re.IGNORECASE)
+        pmid = pmid_match.group(1) if pmid_match else ""
         contexts.append(
             {
                 "name": source_name,
                 "doc_id": source_stem,
-                "pmid": "",
-                "url": "",
+                "pmid": pmid,
+                "url": f"/papers/{pmid}" if pmid else "",
                 "pdf_url": "",
                 "text": getattr(text_obj, "text", "")[:1200],
                 "citation": getattr(getattr(text_obj, "doc", None), "citation", "") or source_name,

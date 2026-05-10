@@ -34,6 +34,16 @@ See `.env.example` for defaults.
 
 Project-level changes are recorded in [CHANGELOG.md](CHANGELOG.md). Update it before pushing user-visible feature, data, or deployment changes.
 
+## Repository Layout
+
+- `app.py`, `paperqa_engine.py`: FastAPI app and PaperQA bridge.
+- `templates/`, `static/`: web UI templates, JavaScript, and CSS.
+- `paperqa_import/high_medium_ready/`: main APS Markdown corpus.
+- `server_markdown_upload_ready/`: server import bundle and manifests.
+- `scripts/`: one-off import, parsing, rename, and PaperQA pilot utilities.
+- `docs/`: planning notes, pilot reports, and team assignment files.
+- `uploads/`: local runtime data, ignored by Git.
+
 ## API
 
 - `GET /api/health`

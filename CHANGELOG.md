@@ -21,12 +21,19 @@
 - 写作工作流改为逐步确认：大纲、检索、证据、蓝图、草稿、审阅按步骤推进，用户必须确认 evidence 和写作蓝图后才生成草稿。
 - 生成文章和历史生成记录支持在网页内直接编辑并保存，方便把 AI 输出继续修改成可用工作稿。
 - 文献详情页新增个人备注；文献库搜索拆分为文献信息搜索和备注搜索，并支持只显示有备注的文献。
+- 自建文献库新增“编辑信息”功能，拥有者可以在项目入口修改文献库名称和简介。
+- 写作大纲左侧结构树新增编辑能力，可修改章节标题、标题层级、章节提示，并增删章节。
+- 写作检索新增模块勾选，可把 PaperQA 检索限制在指定模块文献中。
+- 文献库筛选新增自定义标签，文献详情页可编辑单篇文献标签，并支持按这些标签筛选。
+- Ask PaperQA 和组文章检索新增证据优先级范围：仅高优先度、高+中优先度、高+中+低优先度；未归类 clinical case 会在后台自动保留。
 
 ### 调整
 
 - 文章/段落生成功能接入 `nature-polishing` 的核心写作规则：按 claim-evidence-boundary、review synthesis、citation-key 保护和 overclaim control 生成更专业的综述草稿。
 - 生文 prompt 拆分为通用综述写作规则和可选文献库上下文规则；APS module boundary 只在 APS Review 工作区启用，避免限制未来其他文献库。
 - Markdown 原文阅读渲染增加常见 inline LaTeX 清洗：例如 `$\beta 2$ -glycoprotein` 会显示为 `β2-glycoprotein`，`$\beta 2\mathrm{GPI}$` 会显示为 `β2GPI`。
+- PaperQA 引用高亮的句子切分改为规则切分，不再按分号切断，并避开 `et al.`、`Fig.`、小数点等常见误切位置。
+- 写作页“导入大纲”按钮改为稳定居中的按钮布局，避免中文按钮文本错位。
 
 ### 新增
 
@@ -37,8 +44,8 @@
   - `scripts/batch_knowhere_parse.py`
   - `scripts/import_fix.py`
 - 新增服务器端文献导入包 `server_markdown_upload_ready/`，包含 Markdown 文献、Knowhere 解析子集和 manifest 清单。
-- 新增 15 人协作下载任务表 `team_assignment_15_colleagues.xlsx`。
-- 新增 PDF 重命名辅助脚本 `rename_pdfs.py`。
+- 新增 15 人协作下载任务表 `docs/team/team_assignment_15_colleagues.xlsx`。
+- 新增 PDF 重命名辅助脚本 `scripts/rename_pdfs.py`。
 
 ### 数据
 
