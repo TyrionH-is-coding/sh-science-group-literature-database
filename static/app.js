@@ -5,6 +5,7 @@ const state = {
     moduleCounts: {},
     paperPage: 1,
     pageSize: 50,
+    notesOnly: localStorage.getItem("litdb.notesOnly") === "1",
     uploads: [],
     filteredUploads: [],
     uploadPage: 1,
@@ -41,31 +42,31 @@ const i18n = {
         projectTitle: "Choose a dataset",
         apsKicker: "Active dataset",
         apsTitle: "APS Review",
-        apsDescription: "Systematic review corpus with PaperQA search, paper inspection, and PDF upload queue.",
+        apsDescription: "Systematic review corpus with PaperQA search, paper inspection, and file upload queue.",
         enterProject: "Enter project",
         newWorkspaceKicker: "Custom workspace",
         newWorkspaceTitle: "Add workspace",
-        newWorkspaceDescription: "Create a small PDF library, then ask PaperQA and draft from selected evidence.",
+        newWorkspaceDescription: "Create a small file library, then ask PaperQA and draft from selected evidence.",
         newWorkspacePlaceholder: "Workspace name",
         personalWorkspace: "Small literature library",
-        personalWorkspaceHint: "No PMID required, fewer than 100 PDFs, suitable for 2-5 collaborators.",
+        personalWorkspaceHint: "No PMID required, fewer than 100 files, suitable for 2-5 collaborators.",
         teamWorkspace: "Team library",
-        teamWorkspaceHint: "PMID required for each PDF.",
+        teamWorkspaceHint: "PMID required for each uploaded file.",
         createWorkspace: "Create workspace",
         workspaceCreated: "Workspace created.",
         workspaceCreateFailed: "Could not create workspace.",
         deleteWorkspace: "Delete library",
-        deleteWorkspaceConfirm: "Delete this library and its uploaded PDFs?",
+        deleteWorkspaceConfirm: "Delete this library and its uploaded files?",
         deleteWorkspaceBlocked: "Team libraries can only be deleted by administrators.",
         workspaceDeleted: "Library deleted.",
         workspaceTypePersonal: "Small library",
         workspaceTypeTeam: "Team",
         customWorkspace: "Custom workspace",
-        pdfLibrary: "PDF Library",
-        pdfFiles: "PDF files",
-        noWorkspacePdfs: "No PDFs uploaded in this workspace yet.",
+        pdfLibrary: "File Library",
+        pdfFiles: "source files",
+        noWorkspacePdfs: "No PDF or Markdown files uploaded in this workspace yet.",
         workspaceUploadHint: "PMID is optional in small literature libraries.",
-        workspaceQueryPlaceholder: "Ask a question about the uploaded PDFs.",
+        workspaceQueryPlaceholder: "Ask a question about the uploaded PDF or Markdown files.",
         backToProjects: "Projects",
         appEyebrow: "APS Review Workspace",
         appTitle: "SH Science Group",
@@ -79,6 +80,9 @@ const i18n = {
         search: "Search",
         searchLiterature: "Search literature",
         searchPlaceholder: "Search PMID, title, journal, module",
+        searchNotes: "Search notes",
+        noteSearchPlaceholder: "Search your notes",
+        notesOnly: "Only noted",
         page: "Page",
         previousPage: "Previous",
         nextPage: "Next",
@@ -156,17 +160,45 @@ const i18n = {
         importOutline: "Import outline",
         clearOutline: "Clear outline",
         outlinePanel: "Manuscript outline",
-        outlinePanelTitle: "Sections",
+        outlinePanelTitle: "Structure tree",
         outlineEmpty: "Import a Markdown outline to plan section-level retrieval.",
         outlineDetailEmpty: "Select a section to build a retrieval query and assign evidence.",
         outlineImported: "Outline imported.",
         outlineCleared: "Outline cleared.",
         outlineImportFailed: "Could not read outline.",
+        outlineTreeHint: "Markdown headings are shown as a section tree. Choose one section to retrieve evidence.",
+        outlineAddSection: "Add section",
+        outlineAddSubsection: "Add subsection",
+        outlineSaveSection: "Save section",
+        outlineDeleteSection: "Delete section",
+        outlineDeleteConfirm: "Delete this section and its subsections?",
+        outlineSectionTitle: "Section title",
+        outlineSectionLevel: "Heading level",
+        outlineSectionNotesEditor: "Section prompt notes",
+        outlineSectionTitlePlaceholder: "e.g. Clinical features",
+        outlineSectionNotesPlaceholder: "Add the retrieval or writing hints under this section.",
+        newOutlineSection: "New section",
+        newOutlineSubsection: "New subsection",
+        sectionSaved: "Section updated.",
+        sectionAdded: "Section added.",
+        sectionDeleted: "Section deleted.",
+        headingLevel1: "Level 1 title",
+        headingLevel2: "Level 2 title",
+        headingLevel3: "Level 3 title",
+        headingLevel4: "Level 4 title",
+        headingLevel5: "Level 5 title",
+        headingLevel6: "Level 6 title",
+        selectedSection: "Selected section",
+        retrievalWorkspace: "Retrieval workspace",
+        noOutlineNotes: "No notes under this heading.",
+        evidenceFound: "found",
+        evidenceSelected: "selected",
         outlineSectionNotes: "Existing notes",
         outlineRetrievalQuery: "Retrieval question",
         outlineQueryPlaceholder: "The section title will be converted into a PaperQA retrieval question.",
         retrieveSectionEvidence: "Retrieve evidence",
-        addSectionParagraph: "Add as paragraph",
+        addSectionParagraph: "Add empty paragraph plan",
+        addSectionParagraphHint: "Creates a paragraph slot from this section without assigning evidence yet.",
         addSectionEvidenceParagraph: "Add paragraph with selected evidence",
         noSectionEvidence: "No retrieved evidence yet.",
         sectionEvidence: "Retrieved evidence",
@@ -188,7 +220,7 @@ const i18n = {
         articleNeedEvidence: "Assign evidence to at least one paragraph.",
         articleNeedParagraph: "Add at least one paragraph plan.",
         paragraphEvidence: "Evidence assigned to this paragraph",
-        uploadPdf: "Upload PDF",
+        uploadPdf: "Upload file",
         uploadButton: "Upload",
         pmidPlaceholder: "PMID",
         tabPapers: "Papers",
@@ -211,8 +243,8 @@ const i18n = {
         guideComposerText: "Click Compose from the Evidence Library, arrange selected sentences into paragraph plans, set approximate length, then generate a citation-key based Nature-style synthesis draft.",
         guideRecordsTitle: "6. Check draft history",
         guideRecordsText: "Generated paragraphs and article drafts are saved under the current user account after successful LLM generation.",
-        guideUploadTitle: "7. Upload PDFs",
-        guideUploadText: "Use the upload panel for manual PDFs. A PMID is required, and the current user name is recorded with the upload.",
+        guideUploadTitle: "7. Upload files",
+        guideUploadText: "Use the upload panel for manual PDFs, Markdown abstracts, or plain-text notes. A PMID is required in the APS corpus, and the current user name is recorded with the upload.",
         guideUpdatesTitle: "Update notes",
         guideUpdateLatest: "May 2026: added simple accounts, saved draft history, article-page sentence selection, Evidence Library management, article composer routing, 50-paper pagination, draggable article Evidence Library shortcut, upload-record filtering with 20-record pagination, progress indicators for long-running AI/upload tasks, and direct PDF links for papers with uploaded PDFs.",
         guideUpdateNext: "Future changes should be added here with a short date and user-facing summary.",
@@ -228,14 +260,14 @@ const i18n = {
         doacs: "DOACs",
         complement: "Complement",
         answerEmpty: "Answers and cited source snippets will appear here.",
-        manualPdfs: "Manual PDFs",
+        manualPdfs: "Manual files",
         uploadQueue: "Upload queue",
         myUploadsOnly: "Only mine",
         selectVisibleUploads: "Select page",
         clearUploadSelection: "Clear",
         deleteSelectedUploads: "Delete selected",
         selectedUploads: "selected",
-        batchDeleteConfirm: "Delete selected upload records and PDF files?",
+        batchDeleteConfirm: "Delete selected upload records and files?",
         batchDeleteSuccess: "Selected upload records deleted.",
         uploadRecordsUnit: "records",
         refresh: "Refresh",
@@ -255,9 +287,14 @@ const i18n = {
         sources: "Cited evidence",
         evidenceHint: "Checked sentences can be used to generate a manuscript-ready paragraph.",
         openPaper: "Open original",
-        openPdf: "Open PDF",
+        openPdf: "Open file",
         pdfAvailable: "PDF available",
         pdfMissing: "No PDF uploaded",
+        paperNotes: "Notes",
+        paperNotePlaceholder: "Add your notes for this paper. Saved notes are included in literature search.",
+        savePaperNote: "Save note",
+        noteSaved: "Note saved.",
+        noteSaveFailed: "Could not save note.",
         openHighlighted: "Open highlighted paper",
         generateFromEvidence: "Generate paragraph",
         generatedParagraph: "Generated paragraph",
@@ -269,7 +306,7 @@ const i18n = {
         disabledSoon: "Coming later",
         selectEvidenceFirst: "Select evidence sentences first.",
         generatingDraft: "Generating a paragraph from selected evidence...",
-        noUploads: "No uploaded PDFs yet.",
+        noUploads: "No uploaded files yet.",
         uploadStatusUploaded: "Uploaded",
         uploadStatusIndexed: "Indexed",
         toggleStatus: "Toggle status",
@@ -278,9 +315,9 @@ const i18n = {
         deleteFailed: "Delete failed",
         updateFailed: "Update failed",
         noCorpusData: "No corpus data",
-        uploadMissing: "Select a PDF and PMID.",
+        uploadMissing: "Select a PDF/Markdown file and PMID.",
         uploadNeedLogin: "Log in before uploading.",
-        uploadingPdf: "Uploading PDF...",
+        uploadingPdf: "Uploading file...",
         uploadSaved: "Upload saved.",
         unknownJournal: "Unknown journal",
         unknownDate: "Unknown date",
@@ -301,31 +338,31 @@ const i18n = {
         projectTitle: "选择数据集",
         apsKicker: "当前数据集",
         apsTitle: "APS Review",
-        apsDescription: "系统综述语料库，支持 PaperQA 检索、文献查看和 PDF 上传队列。",
+        apsDescription: "系统综述语料库，支持 PaperQA 检索、文献查看和文件上传队列。",
         enterProject: "进入项目",
         newWorkspaceKicker: "自建工作区",
         newWorkspaceTitle: "新增工作区",
-        newWorkspaceDescription: "创建一个小型 PDF 文献库，用 PaperQA 提问，并从证据句子生成写作草稿。",
+        newWorkspaceDescription: "创建一个小型文件文献库，用 PaperQA 提问，并从证据句子生成写作草稿。",
         newWorkspacePlaceholder: "工作区名称",
         personalWorkspace: "小型文献库",
-        personalWorkspaceHint: "不要求 PMID，少于 100 篇 PDF，适合 2-5 人协作使用。",
+        personalWorkspaceHint: "不要求 PMID，少于 100 个文件，适合 2-5 人协作使用。",
         teamWorkspace: "多人合作文献库",
-        teamWorkspaceHint: "每篇 PDF 必须填写 PMID。",
+        teamWorkspaceHint: "每个上传文件必须填写 PMID。",
         createWorkspace: "创建工作区",
         workspaceCreated: "工作区已创建。",
         workspaceCreateFailed: "无法创建工作区。",
         deleteWorkspace: "删除文献库",
-        deleteWorkspaceConfirm: "确定删除这个文献库和其中已上传的 PDF 吗？",
+        deleteWorkspaceConfirm: "确定删除这个文献库和其中已上传的文件吗？",
         deleteWorkspaceBlocked: "多人合作文献库仅管理员可删除。",
         workspaceDeleted: "文献库已删除。",
         workspaceTypePersonal: "小型库",
         workspaceTypeTeam: "团队",
         customWorkspace: "自建工作区",
-        pdfLibrary: "PDF 文献库",
-        pdfFiles: "PDF 文件",
-        noWorkspacePdfs: "这个工作区还没有上传 PDF。",
+        pdfLibrary: "文件文献库",
+        pdfFiles: "来源文件",
+        noWorkspacePdfs: "这个工作区还没有上传 PDF 或 Markdown 文件。",
         workspaceUploadHint: "小型文献库不需要填写 PMID。",
-        workspaceQueryPlaceholder: "针对已上传 PDF 提问。",
+        workspaceQueryPlaceholder: "针对已上传 PDF 或 Markdown 文件提问。",
         backToProjects: "项目选择",
         appEyebrow: "APS 综述工作区",
         appTitle: "SH Science Group",
@@ -339,6 +376,9 @@ const i18n = {
         search: "搜索",
         searchLiterature: "搜索文献",
         searchPlaceholder: "搜索 PMID、标题、期刊、模块",
+        searchNotes: "搜索备注",
+        noteSearchPlaceholder: "搜索你的备注",
+        notesOnly: "只看有备注",
         page: "页",
         previousPage: "上一页",
         nextPage: "下一页",
@@ -416,17 +456,45 @@ const i18n = {
         importOutline: "导入大纲",
         clearOutline: "清空大纲",
         outlinePanel: "文章大纲",
-        outlinePanelTitle: "章节",
+        outlinePanelTitle: "结构树",
         outlineEmpty: "导入 Markdown 大纲后，可以按章节组织检索。",
         outlineDetailEmpty: "选择一个章节，生成检索问题并分配证据。",
         outlineImported: "大纲已导入。",
         outlineCleared: "大纲已清空。",
         outlineImportFailed: "无法读取大纲。",
+        outlineTreeHint: "Markdown 标题会显示成章节树。点击某一节后，在右侧检索和分配证据。",
+        outlineAddSection: "新增章节",
+        outlineAddSubsection: "新增子章节",
+        outlineSaveSection: "保存章节",
+        outlineDeleteSection: "删除章节",
+        outlineDeleteConfirm: "确定删除这个章节及其下级章节吗？",
+        outlineSectionTitle: "章节标题",
+        outlineSectionLevel: "标题层级",
+        outlineSectionNotesEditor: "章节提示",
+        outlineSectionTitlePlaceholder: "例如：Clinical features",
+        outlineSectionNotesPlaceholder: "写下这一节检索或写作时需要注意的提示。",
+        newOutlineSection: "新增章节",
+        newOutlineSubsection: "新增子章节",
+        sectionSaved: "章节已更新。",
+        sectionAdded: "章节已添加。",
+        sectionDeleted: "章节已删除。",
+        headingLevel1: "一级标题",
+        headingLevel2: "二级标题",
+        headingLevel3: "三级标题",
+        headingLevel4: "四级标题",
+        headingLevel5: "五级标题",
+        headingLevel6: "六级标题",
+        selectedSection: "当前章节",
+        retrievalWorkspace: "检索工作区",
+        noOutlineNotes: "这个标题下暂无提示文字。",
+        evidenceFound: "已找到",
+        evidenceSelected: "已选择",
         outlineSectionNotes: "已有提示",
         outlineRetrievalQuery: "检索问题",
         outlineQueryPlaceholder: "系统会根据章节标题生成 PaperQA 检索问题。",
         retrieveSectionEvidence: "检索证据",
-        addSectionParagraph: "加入段落计划",
+        addSectionParagraph: "加入空段落计划",
+        addSectionParagraphHint: "只把这个章节加入段落计划，暂时不绑定证据。",
         addSectionEvidenceParagraph: "用所选证据加入段落",
         noSectionEvidence: "还没有检索到证据。",
         sectionEvidence: "检索到的证据",
@@ -448,7 +516,7 @@ const i18n = {
         articleNeedEvidence: "请至少给一个段落分配证据。",
         articleNeedParagraph: "请至少添加一个段落计划。",
         paragraphEvidence: "本段使用的证据",
-        uploadPdf: "上传 PDF",
+        uploadPdf: "上传文件",
         uploadButton: "上传",
         pmidPlaceholder: "PMID",
         tabPapers: "文献",
@@ -471,8 +539,8 @@ const i18n = {
         guideComposerText: "点击自选库里的“组文章”，把句子分配到不同段落，设置每段大约字数，再一次性生成带 citation key 的 Nature 风格综述草稿。",
         guideRecordsTitle: "6. 查看生成记录",
         guideRecordsText: "LLM 成功生成的段落和文章草稿，会保存到当前用户账号下，可以在左侧生成记录中查看。",
-        guideUploadTitle: "7. 上传 PDF",
-        guideUploadText: "上传面板用于人工补充 PDF。需要填写 PMID，系统会记录当前上传用户。",
+        guideUploadTitle: "7. 上传文件",
+        guideUploadText: "上传面板用于人工补充 PDF、Markdown 摘要或纯文本笔记。APS 文献库需要填写 PMID，系统会记录当前上传用户。",
         guideUpdatesTitle: "更新记录",
         guideUpdateLatest: "2026 年 5 月：加入轻量账号、生成记录、原文页选句、自选库管理、组文章跳转、50 篇文献分页、原文页可拖动自选库入口、上传记录按 20 条分页和只看我的记录，为 AI 生成和上传等耗时任务加入进度提示，并为已有上传 PDF 的文献加入直接打开 PDF 的入口。",
         guideUpdateNext: "以后每次新增功能，都在这里按日期补一条面向用户的说明。",
@@ -488,14 +556,14 @@ const i18n = {
         doacs: "DOACs",
         complement: "补体",
         answerEmpty: "这里会显示回答和可勾选的引用句子。",
-        manualPdfs: "人工 PDF",
+        manualPdfs: "人工文件",
         uploadQueue: "上传队列",
         myUploadsOnly: "只看我的记录",
         selectVisibleUploads: "选择本页",
         clearUploadSelection: "清空选择",
         deleteSelectedUploads: "删除所选",
         selectedUploads: "条已选",
-        batchDeleteConfirm: "删除选中的上传记录和 PDF 文件？",
+        batchDeleteConfirm: "删除选中的上传记录和文件？",
         batchDeleteSuccess: "已删除选中的上传记录。",
         uploadRecordsUnit: "条记录",
         refresh: "刷新",
@@ -515,9 +583,14 @@ const i18n = {
         sources: "引用证据",
         evidenceHint: "勾选句子后，可生成能直接放入文章草稿的段落。",
         openPaper: "打开原文",
-        openPdf: "打开 PDF",
+        openPdf: "打开文件",
         pdfAvailable: "已有 PDF",
         pdfMissing: "暂无 PDF",
+        paperNotes: "备注",
+        paperNotePlaceholder: "给这篇文献添加备注。保存后可以通过搜索备注内容找到它。",
+        savePaperNote: "保存备注",
+        noteSaved: "备注已保存。",
+        noteSaveFailed: "备注保存失败。",
         openHighlighted: "打开高亮原文",
         generateFromEvidence: "生成段落",
         generatedParagraph: "生成段落",
@@ -529,7 +602,7 @@ const i18n = {
         disabledSoon: "后续开放",
         selectEvidenceFirst: "请先勾选证据句子。",
         generatingDraft: "正在根据所选证据生成段落...",
-        noUploads: "暂无上传 PDF。",
+        noUploads: "暂无上传文件。",
         uploadStatusUploaded: "已上传",
         uploadStatusIndexed: "已索引",
         toggleStatus: "切换状态",
@@ -538,9 +611,9 @@ const i18n = {
         deleteFailed: "删除失败",
         updateFailed: "更新失败",
         noCorpusData: "暂无文献库数据",
-        uploadMissing: "请选择 PDF 并填写 PMID。",
+        uploadMissing: "请选择 PDF/Markdown 文件并填写 PMID。",
         uploadNeedLogin: "请先登录后再上传。",
-        uploadingPdf: "正在上传 PDF...",
+        uploadingPdf: "正在上传文件...",
         uploadSaved: "上传已保存。",
         unknownJournal: "未知期刊",
         unknownDate: "未知日期",
@@ -612,6 +685,8 @@ const els = {
     prioritySummary: document.getElementById("priority-summary"),
     searchInput: document.getElementById("search-input"),
     paperPagination: document.getElementById("paper-pagination"),
+    noteSearchInput: document.getElementById("note-search-input"),
+    notesOnlyFilter: document.getElementById("notes-only-filter"),
     prevPage: document.getElementById("prev-page"),
     nextPage: document.getElementById("next-page"),
     pageSelect: document.getElementById("page-select"),
@@ -650,8 +725,10 @@ const els = {
     backFromHistory: document.getElementById("back-from-history"),
     outlineFile: document.getElementById("outline-file"),
     clearOutline: document.getElementById("clear-outline"),
+    addOutlineSection: document.getElementById("outline-add-section"),
     outlineCount: document.getElementById("outline-count"),
     outlineList: document.getElementById("outline-list"),
+    outlineSideEditor: document.getElementById("outline-side-editor"),
     outlineDetail: document.getElementById("outline-detail"),
     writingStepper: document.getElementById("writing-stepper"),
     writingStageNote: document.getElementById("writing-stage-note"),
@@ -1040,11 +1117,18 @@ function activateView(view) {
 
 function bindFilters() {
     let searchTimeout;
-    [els.searchInput, els.priorityFilter, els.moduleFilter].forEach((input) => {
-        const eventType = input === els.searchInput ? "input" : "change";
+    if (els.notesOnlyFilter) {
+        els.notesOnlyFilter.checked = state.notesOnly;
+    }
+    [els.searchInput, els.noteSearchInput, els.notesOnlyFilter, els.priorityFilter, els.moduleFilter].filter(Boolean).forEach((input) => {
+        const eventType = input === els.searchInput || input === els.noteSearchInput ? "input" : "change";
         input.addEventListener(eventType, () => {
             state.paperPage = 1;
-            if (input === els.searchInput) {
+            if (input === els.notesOnlyFilter) {
+                state.notesOnly = input.checked;
+                localStorage.setItem("litdb.notesOnly", state.notesOnly ? "1" : "0");
+            }
+            if (input === els.searchInput || input === els.noteSearchInput) {
                 clearTimeout(searchTimeout);
                 searchTimeout = setTimeout(applyFilters, 300);
             } else {
@@ -1119,6 +1203,7 @@ function bindArticleComposer() {
     els.backToWorkspace.addEventListener("click", closeArticleComposer);
     els.outlineFile.addEventListener("change", importOutlineFile);
     els.clearOutline.addEventListener("click", clearManuscriptOutline);
+    els.addOutlineSection?.addEventListener("click", () => addOutlineSection("after"));
     els.writingPrevStep.addEventListener("click", previousWritingStep);
     els.writingNextStep.addEventListener("click", confirmWritingStep);
     els.generateBlueprint.addEventListener("click", () => {
@@ -1213,7 +1298,8 @@ async function loadPapers() {
         return;
     }
     try {
-        const data = await fetchJson("/api/papers");
+        const noteQuery = state.userToken ? `?user_token=${encodeURIComponent(state.userToken)}` : "";
+        const data = await fetchJson(`/api/papers${noteQuery}`);
         state.papers = data.papers || [];
         state.moduleCounts = data.summary ? data.summary.module_counts : {};
         populateModuleFilter(state.moduleCounts);
@@ -1253,7 +1339,7 @@ function renderWorkspacePdfs() {
                 <strong>${escapeHtml(doc.original_filename || doc.filename)}</strong>
                 <span class="paper-meta">${escapeHtml(formatDate(doc.uploaded_at))} · ${escapeHtml(formatSize(doc.file_size))}</span>
             </td>
-            <td><span class="pdf-status available">PDF</span></td>
+            <td><span class="pdf-status available">${escapeHtml(fileTypeLabel(doc))}</span></td>
             <td>${escapeHtml(doc.uploaded_by || state.userName || t("missing"))}</td>
         </tr>
     `).join("");
@@ -1266,18 +1352,27 @@ function renderWorkspacePdfs() {
 function selectWorkspacePdf(documentId) {
     const doc = state.workspaceDocuments.find((item) => item.id === documentId);
     if (!doc) return;
+    const fileUrl = doc.file_url || doc.pdf_url || "";
     els.paperDetail.innerHTML = `
         <h3>${escapeHtml(doc.original_filename || doc.filename)}</h3>
         <p class="paper-meta">${escapeHtml(t("customWorkspace"))} · ${escapeHtml(formatDate(doc.uploaded_at))}</p>
         <dl class="detail-grid">
-            <div><dt>PDF</dt><dd><span class="pdf-status available">${escapeHtml(t("pdfAvailable"))}</span></dd></div>
+            <div><dt>${escapeHtml(t("uploadPdf"))}</dt><dd><span class="pdf-status available">${escapeHtml(fileTypeLabel(doc))}</span></dd></div>
             <div><dt>${escapeHtml(t("signedInAs"))}</dt><dd>${escapeHtml(doc.uploaded_by || t("missing"))}</dd></div>
             <div><dt>${escapeHtml(t("uploadRecordsUnit"))}</dt><dd>${escapeHtml(formatSize(doc.file_size))}</dd></div>
         </dl>
         <div class="detail-actions">
-            <a class="source-link pdf-link" href="${escapeHtml(doc.pdf_url)}" target="_blank" rel="noopener">${escapeHtml(t("openPdf"))}</a>
+            ${fileUrl ? `<a class="source-link pdf-link" href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener">${escapeHtml(t("openPdf"))}</a>` : ""}
         </div>
     `;
+}
+
+function fileTypeLabel(item) {
+    const filename = String(item?.original_filename || item?.filename || "").toLowerCase();
+    const fileType = String(item?.file_type || "").toLowerCase();
+    if (fileType === "markdown" || filename.endsWith(".md") || filename.endsWith(".markdown")) return "MD";
+    if (fileType === "text" || filename.endsWith(".txt")) return "TXT";
+    return "PDF";
 }
 
 function populateModuleFilter(moduleCounts) {
@@ -1297,11 +1392,13 @@ function applyFilters() {
         return;
     }
     const query = els.searchInput.value.trim().toLowerCase();
+    const noteQuery = (els.noteSearchInput?.value || "").trim().toLowerCase();
+    const notesOnly = Boolean(els.notesOnlyFilter?.checked || state.notesOnly);
     const priority = els.priorityFilter.value;
     const moduleName = els.moduleFilter.value;
 
     state.filteredPapers = state.papers.filter((paper) => {
-        const haystack = [
+        const metadataHaystack = [
             paper.pmid,
             paper.title,
             paper.authors,
@@ -1311,8 +1408,11 @@ function applyFilters() {
             paper.study_types,
             compactModules(paper.aps_modules),
         ].join(" ").toLowerCase();
+        const noteHaystack = String(paper.user_note || "").toLowerCase();
 
-        return (!query || haystack.includes(query))
+        return (!query || metadataHaystack.includes(query))
+            && (!noteQuery || noteHaystack.includes(noteQuery))
+            && (!notesOnly || noteHaystack.length > 0)
             && (!priority || String(paper.priority).toLowerCase() === priority)
             && (!moduleName || String(paper.aps_modules).includes(moduleName));
     });
@@ -1360,6 +1460,7 @@ function renderPapers() {
                 <span class="paper-title-line">
                     <span class="paper-title">${escapeHtml(paper.title)}</span>
                     ${paper.pdf_upload ? `<span class="pdf-badge">PDF</span>` : ""}
+                    ${paper.user_note ? `<span class="pdf-badge note-badge">${escapeHtml(t("paperNotes"))}</span>` : ""}
                 </span>
                 <span class="paper-meta">PMID ${escapeHtml(paper.pmid)} · ${escapeHtml(paper.year || "n.d.")} · ${escapeHtml(paper.journal || t("unknownJournal"))}</span>
             </td>
@@ -1379,6 +1480,7 @@ async function selectPaper(pmid) {
     const paper = state.papers.find((item) => item.pmid === pmid);
     if (!paper) return;
     const pdfUpload = paper.pdf_upload;
+    const userNote = paper.user_note || "";
 
     els.paperDetail.innerHTML = `
         <h3>${escapeHtml(paper.title)}</h3>
@@ -1395,8 +1497,44 @@ async function selectPaper(pmid) {
             <a class="source-link" href="/papers/${encodeURIComponent(paper.pmid)}" target="_blank" rel="noopener">${escapeHtml(t("openPaper"))}</a>
             ${pdfUpload ? `<a class="source-link pdf-link" href="${escapeHtml(pdfUpload.url)}" target="_blank" rel="noopener">${escapeHtml(t("openPdf"))}</a>` : ""}
         </div>
+        <section class="paper-note-card">
+            <div class="paper-note-head">
+                <label class="panel-label" for="paper-note-input">${escapeHtml(t("paperNotes"))}</label>
+                <span class="paper-note-status" id="paper-note-status"></span>
+            </div>
+            <textarea id="paper-note-input" class="paper-note-input" placeholder="${escapeHtml(t("paperNotePlaceholder"))}">${escapeHtml(userNote)}</textarea>
+            <button class="secondary-button small-button" id="save-paper-note" type="button">${escapeHtml(t("savePaperNote"))}</button>
+        </section>
         <p class="abstract">${escapeHtml(paper.abstract || t("noAbstract"))}</p>
     `;
+    document.getElementById("save-paper-note")?.addEventListener("click", () => savePaperNote(paper.pmid));
+}
+
+async function savePaperNote(pmid) {
+    const input = document.getElementById("paper-note-input");
+    const status = document.getElementById("paper-note-status");
+    const note = input?.value || "";
+    if (status) status.textContent = "";
+    try {
+        const result = await fetchJson(`/api/papers/${encodeURIComponent(pmid)}/note`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                user_token: state.userToken,
+                user_name: state.userName,
+                note,
+            }),
+        });
+        const paper = state.papers.find((item) => item.pmid === pmid);
+        if (paper) {
+            paper.user_note = result.note?.note || "";
+            paper.note_updated_at = result.note?.updated_at || "";
+        }
+        if (status) status.textContent = t("noteSaved");
+        applyFilters();
+    } catch (error) {
+        if (status) status.textContent = `${t("noteSaveFailed")} ${formatError(error.message)}`;
+    }
 }
 
 async function askPaperQA(question) {
@@ -1600,6 +1738,56 @@ function saveManuscriptOutline() {
     localStorage.setItem("litdb.manuscriptOutline", JSON.stringify(state.manuscriptOutline.slice(0, 120)));
 }
 
+function clampHeadingLevel(level) {
+    return Math.min(6, Math.max(1, Number(level) || 1));
+}
+
+function headingLevelLabel(level) {
+    return t(`headingLevel${clampHeadingLevel(level)}`);
+}
+
+function normalizeManuscriptOutlineLevels() {
+    if (!state.manuscriptOutline.length) return;
+    const levels = state.manuscriptOutline.map((section) => clampHeadingLevel(section.level));
+    const baseLevel = Math.min(...levels);
+    let changed = false;
+    state.manuscriptOutline = state.manuscriptOutline.map((section, index) => {
+        const normalizedLevel = clampHeadingLevel(clampHeadingLevel(section.level) - baseLevel + 1);
+        const normalized = {
+            ...section,
+            id: section.id || uniqueOutlineId(section.title || `${t("newOutlineSection")} ${index + 1}`),
+            level: normalizedLevel,
+            title: String(section.title || `${t("newOutlineSection")} ${index + 1}`).trim(),
+            notes: String(section.notes || ""),
+        };
+        changed = changed
+            || normalized.level !== section.level
+            || normalized.id !== section.id
+            || normalized.title !== section.title
+            || normalized.notes !== section.notes;
+        return normalized;
+    });
+    if (changed) saveManuscriptOutline();
+}
+
+function uniqueOutlineId(title) {
+    const base = `outline-${slugifyForId(title || t("newOutlineSection"))}`;
+    let candidate = base;
+    let index = 2;
+    const existing = new Set(state.manuscriptOutline.map((section) => section.id));
+    while (existing.has(candidate)) {
+        candidate = `${base}-${index}`;
+        index += 1;
+    }
+    return candidate;
+}
+
+function outlineLevelOptions(selectedLevel) {
+    return [1, 2, 3, 4, 5, 6].map((level) => `
+        <option value="${level}" ${clampHeadingLevel(selectedLevel) === level ? "selected" : ""}>${escapeHtml(headingLevelLabel(level))}</option>
+    `).join("");
+}
+
 function saveWritingStep() {
     state.writingStep = Math.min(6, Math.max(1, Number(state.writingStep || 1)));
     sessionStorage.setItem("litdb.writingStep", String(state.writingStep));
@@ -1702,11 +1890,79 @@ function defaultOutlineQuery(section) {
     return `For a biomedical review section titled "${section.title}", what evidence from the literature should be cited?${notes}`;
 }
 
+function activeOutlineIndex() {
+    return state.manuscriptOutline.findIndex((section) => section.id === state.activeOutlineId);
+}
+
+function outlineSubtreeEndIndex(startIndex) {
+    if (startIndex < 0) return state.manuscriptOutline.length;
+    const level = clampHeadingLevel(state.manuscriptOutline[startIndex]?.level);
+    let end = startIndex + 1;
+    while (end < state.manuscriptOutline.length && clampHeadingLevel(state.manuscriptOutline[end].level) > level) {
+        end += 1;
+    }
+    return end;
+}
+
+function addOutlineSection(mode = "after") {
+    normalizeManuscriptOutlineLevels();
+    const activeIndex = activeOutlineIndex();
+    const activeSection = activeIndex >= 0 ? state.manuscriptOutline[activeIndex] : null;
+    const asChild = mode === "child" && activeSection;
+    const level = asChild ? clampHeadingLevel(activeSection.level + 1) : clampHeadingLevel(activeSection?.level || 1);
+    const title = asChild ? t("newOutlineSubsection") : t("newOutlineSection");
+    const section = {
+        id: uniqueOutlineId(`${title}-${Date.now()}`),
+        level,
+        title,
+        notes: "",
+    };
+    const insertIndex = activeIndex >= 0
+        ? asChild
+            ? activeIndex + 1
+            : outlineSubtreeEndIndex(activeIndex)
+        : state.manuscriptOutline.length;
+    state.manuscriptOutline.splice(insertIndex, 0, section);
+    state.activeOutlineId = section.id;
+    saveManuscriptOutline();
+    renderManuscriptOutline();
+    showWritingMessage(t("sectionAdded"), false);
+}
+
+function saveActiveOutlineSection() {
+    const section = activeOutlineSection();
+    if (!section) return;
+    const title = (document.getElementById("outline-title-editor")?.value || section.title).trim();
+    section.title = title || t("newOutlineSection");
+    section.level = clampHeadingLevel(document.getElementById("outline-level-editor")?.value || section.level);
+    section.notes = (document.getElementById("outline-notes-editor")?.value || "").trim().slice(0, 1200);
+    saveManuscriptOutline();
+    renderManuscriptOutline();
+    showWritingMessage(t("sectionSaved"), false);
+}
+
+function deleteActiveOutlineSection() {
+    const start = activeOutlineIndex();
+    if (start < 0) return;
+    if (!window.confirm(t("outlineDeleteConfirm"))) return;
+    const end = outlineSubtreeEndIndex(start);
+    const removed = state.manuscriptOutline.splice(start, end - start);
+    for (const section of removed) {
+        delete state.outlineRetrieval[section.id];
+    }
+    state.activeOutlineId = state.manuscriptOutline[Math.min(start, state.manuscriptOutline.length - 1)]?.id || "";
+    saveManuscriptOutline();
+    renderManuscriptOutline();
+    showWritingMessage(t("sectionDeleted"), false);
+}
+
 function renderManuscriptOutline() {
     if (!els.outlineList || !els.outlineDetail) return;
+    normalizeManuscriptOutlineLevels();
     if (els.outlineCount) els.outlineCount.textContent = String(state.manuscriptOutline.length);
     if (!state.manuscriptOutline.length) {
         els.outlineList.innerHTML = `<p class="empty-note">${escapeHtml(t("outlineEmpty"))}</p>`;
+        if (els.outlineSideEditor) els.outlineSideEditor.innerHTML = "";
         els.outlineDetail.innerHTML = `<p class="empty-note">${escapeHtml(t("outlineDetailEmpty"))}</p>`;
         return;
     }
@@ -1714,10 +1970,7 @@ function renderManuscriptOutline() {
         state.activeOutlineId = state.manuscriptOutline[0].id;
     }
     els.outlineList.innerHTML = state.manuscriptOutline.map((section) => `
-        <button class="outline-section-button ${section.id === state.activeOutlineId ? "active" : ""}" type="button" data-id="${escapeHtml(section.id)}" style="--outline-level:${Math.max(0, section.level - 1)}">
-            <span>${escapeHtml(section.title)}</span>
-            <small>H${escapeHtml(String(section.level))}</small>
-        </button>
+        ${renderOutlineTreeNode(section)}
     `).join("");
     els.outlineList.querySelectorAll(".outline-section-button").forEach((button) => {
         button.addEventListener("click", () => {
@@ -1725,7 +1978,64 @@ function renderManuscriptOutline() {
             renderManuscriptOutline();
         });
     });
+    renderOutlineSideEditor();
     renderOutlineDetail();
+}
+
+function renderOutlineSideEditor() {
+    if (!els.outlineSideEditor) return;
+    const section = activeOutlineSection();
+    if (!section) {
+        els.outlineSideEditor.innerHTML = "";
+        return;
+    }
+    els.outlineSideEditor.innerHTML = `
+        <div class="outline-editor-card">
+            <p class="panel-label">${escapeHtml(t("selectedSection"))}</p>
+            <label class="field-label">
+                ${escapeHtml(t("outlineSectionTitle"))}
+                <input id="outline-title-editor" class="text-input" type="text" placeholder="${escapeHtml(t("outlineSectionTitlePlaceholder"))}" value="${escapeHtml(section.title)}">
+            </label>
+            <label class="field-label">
+                ${escapeHtml(t("outlineSectionLevel"))}
+                <select id="outline-level-editor" class="text-input">${outlineLevelOptions(section.level)}</select>
+            </label>
+            <label class="field-label">
+                ${escapeHtml(t("outlineSectionNotesEditor"))}
+                <textarea id="outline-notes-editor" class="query-input outline-notes-editor" placeholder="${escapeHtml(t("outlineSectionNotesPlaceholder"))}">${escapeHtml(section.notes || "")}</textarea>
+            </label>
+            <div class="outline-edit-actions">
+                <button class="primary-button small-button" id="outline-save-section" type="button">${escapeHtml(t("outlineSaveSection"))}</button>
+                <button class="secondary-button small-button" id="outline-add-subsection" type="button">${escapeHtml(t("outlineAddSubsection"))}</button>
+                <button class="text-button danger-text-button" id="outline-delete-section" type="button">${escapeHtml(t("outlineDeleteSection"))}</button>
+            </div>
+        </div>
+    `;
+    document.getElementById("outline-save-section")?.addEventListener("click", saveActiveOutlineSection);
+    document.getElementById("outline-add-subsection")?.addEventListener("click", () => addOutlineSection("child"));
+    document.getElementById("outline-delete-section")?.addEventListener("click", deleteActiveOutlineSection);
+}
+
+function renderOutlineTreeNode(section) {
+    const retrieval = state.outlineRetrieval[section.id] || {};
+    const contexts = Array.isArray(retrieval.contexts) ? retrieval.contexts : [];
+    const selectedKeys = Array.isArray(retrieval.selectedKeys)
+        ? retrieval.selectedKeys.filter((key) => contexts.some((item) => item.key === key))
+        : contexts.map((item) => item.key);
+    const hasEvidence = contexts.length > 0;
+    return `
+        <button class="outline-section-button ${section.id === state.activeOutlineId ? "active" : ""} ${hasEvidence ? "has-evidence" : ""}" type="button" data-id="${escapeHtml(section.id)}" style="--outline-level:${Math.max(0, clampHeadingLevel(section.level) - 1)}">
+            <span class="outline-tree-main">
+                <span class="outline-branch" aria-hidden="true"></span>
+                <span class="outline-node-dot" aria-hidden="true"></span>
+                <span class="outline-node-title">${escapeHtml(section.title)}</span>
+            </span>
+            <span class="outline-node-meta">
+                <small>${escapeHtml(headingLevelLabel(section.level))}</small>
+                ${hasEvidence ? `<em>${escapeHtml(String(selectedKeys.length))}/${escapeHtml(String(contexts.length))}</em>` : ""}
+            </span>
+        </button>
+    `;
 }
 
 const WRITING_STAGE_NOTES = {
@@ -1816,25 +2126,37 @@ function renderOutlineDetail() {
     const retrieval = state.outlineRetrieval[section.id] || {};
     const query = retrieval.query || defaultOutlineQuery(section);
     const contexts = Array.isArray(retrieval.contexts) ? retrieval.contexts : [];
+    const selectedKeys = Array.isArray(retrieval.selectedKeys)
+        ? retrieval.selectedKeys.filter((key) => contexts.some((item) => item.key === key))
+        : contexts.map((item) => item.key);
     els.outlineDetail.innerHTML = `
-        <div class="outline-detail-head">
+        <div class="section-focus-card">
             <div>
-                <p class="panel-label">H${escapeHtml(String(section.level))}</p>
+                <p class="panel-label">${escapeHtml(t("selectedSection"))}</p>
                 <h3>${escapeHtml(section.title)}</h3>
+                <div class="section-focus-meta">
+                    <span>${escapeHtml(headingLevelLabel(section.level))}</span>
+                    <span>${escapeHtml(String(contexts.length))} ${escapeHtml(t("evidenceFound"))}</span>
+                    <span>${escapeHtml(String(selectedKeys.length))} ${escapeHtml(t("evidenceSelected"))}</span>
+                </div>
             </div>
-            <button class="secondary-button small-button" id="outline-add-paragraph" type="button">${escapeHtml(t("addSectionParagraph"))}</button>
+            <div class="outline-paragraph-shortcut">
+                <button class="secondary-button small-button" id="outline-add-paragraph" type="button">${escapeHtml(t("addSectionParagraph"))}</button>
+                <small>${escapeHtml(t("addSectionParagraphHint"))}</small>
+            </div>
         </div>
-        ${section.notes ? `
-            <div class="outline-notes">
-                <strong>${escapeHtml(t("outlineSectionNotes"))}</strong>
-                <p>${escapeHtml(section.notes)}</p>
+        <div class="retrieval-workspace-card">
+            <div class="retrieval-card-head">
+                <div>
+                    <p class="panel-label">${escapeHtml(t("retrievalWorkspace"))}</p>
+                    <h4>${escapeHtml(t("outlineRetrievalQuery"))}</h4>
+                </div>
             </div>
-        ` : ""}
-        <label class="field-label" for="outline-query">${escapeHtml(t("outlineRetrievalQuery"))}</label>
-        <textarea id="outline-query" class="query-input compact-query" placeholder="${escapeHtml(t("outlineQueryPlaceholder"))}">${escapeHtml(query)}</textarea>
-        <div class="outline-actions">
-            <button class="primary-button small-button" id="outline-retrieve" type="button">${escapeHtml(t("retrieveSectionEvidence"))}</button>
-            <button class="secondary-button small-button" id="outline-add-evidence-paragraph" type="button" ${contexts.length ? "" : "disabled"}>${escapeHtml(t("addSectionEvidenceParagraph"))}</button>
+            <textarea id="outline-query" class="query-input compact-query" placeholder="${escapeHtml(t("outlineQueryPlaceholder"))}">${escapeHtml(query)}</textarea>
+            <div class="outline-actions">
+                <button class="primary-button small-button" id="outline-retrieve" type="button">${escapeHtml(t("retrieveSectionEvidence"))}</button>
+                <button class="secondary-button small-button" id="outline-add-evidence-paragraph" type="button" ${contexts.length ? "" : "disabled"}>${escapeHtml(t("addSectionEvidenceParagraph"))}</button>
+            </div>
         </div>
         <div class="outline-evidence-panel">
             <div class="compose-evidence-head">
@@ -2821,7 +3143,7 @@ function renderUploads() {
                     </div>
                     <div class="upload-actions">
                         <span class="status-pill status-${escapeHtml(String(upload.status || "uploaded").toLowerCase().replace(/\s+/g, "-"))}">${escapeHtml(localizeUploadStatus(upload.status || "uploaded"))}</span>
-                        ${upload.pdf_url ? `<a class="icon-button pdf-open-btn" href="${escapeHtml(upload.pdf_url)}" target="_blank" rel="noopener" title="${escapeHtml(t("openPdf"))}" aria-label="${escapeHtml(t("openPdf"))}">PDF</a>` : ""}
+                        ${upload.file_url ? `<a class="icon-button pdf-open-btn" href="${escapeHtml(upload.file_url)}" target="_blank" rel="noopener" title="${escapeHtml(t("openPdf"))}" aria-label="${escapeHtml(t("openPdf"))}">${escapeHtml(fileTypeLabel(upload))}</a>` : ""}
                         <button class="icon-button status-toggle" data-id="${escapeHtml(String(upload.id))}" data-status="${escapeHtml(String(upload.status || "uploaded"))}" title="${escapeHtml(t("toggleStatus"))}" aria-label="${escapeHtml(t("toggleStatus"))}">&#8596;</button>
                         <button class="icon-button delete-btn" data-id="${escapeHtml(String(upload.id))}" title="${escapeHtml(t("deleteUpload"))}" aria-label="${escapeHtml(t("deleteUpload"))}">&times;</button>
                     </div>
@@ -2852,7 +3174,7 @@ function renderWorkspaceUploads() {
                     </div>
                     <div class="upload-actions">
                         <span class="status-pill status-uploaded">${escapeHtml(localizeUploadStatus(doc.status || "uploaded"))}</span>
-                        <a class="icon-button pdf-open-btn" href="${escapeHtml(doc.pdf_url)}" target="_blank" rel="noopener" title="${escapeHtml(t("openPdf"))}" aria-label="${escapeHtml(t("openPdf"))}">PDF</a>
+                        ${doc.file_url || doc.pdf_url ? `<a class="icon-button pdf-open-btn" href="${escapeHtml(doc.file_url || doc.pdf_url)}" target="_blank" rel="noopener" title="${escapeHtml(t("openPdf"))}" aria-label="${escapeHtml(t("openPdf"))}">${escapeHtml(fileTypeLabel(doc))}</a>` : ""}
                     </div>
                 </div>
             `).join("")}

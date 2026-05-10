@@ -34,11 +34,21 @@ UPLOAD_METADATA_FILE = Path(
 ).resolve()
 USER_METADATA_FILE = Path(os.environ.get("LITDB_USERS_FILE", UPLOAD_DIR / "users.json")).resolve()
 DRAFT_HISTORY_FILE = Path(os.environ.get("LITDB_DRAFT_HISTORY_FILE", UPLOAD_DIR / "draft_history.json")).resolve()
+PAPER_NOTES_FILE = Path(os.environ.get("LITDB_PAPER_NOTES_FILE", UPLOAD_DIR / "paper_notes.json")).resolve()
 WORKSPACE_METADATA_FILE = Path(os.environ.get("LITDB_WORKSPACES_FILE", UPLOAD_DIR / "workspaces.json")).resolve()
 WORKSPACE_UPLOAD_ROOT = Path(os.environ.get("LITDB_WORKSPACE_UPLOAD_ROOT", UPLOAD_DIR / "workspaces")).resolve()
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8081"))
+PDF_SUFFIXES = {".pdf"}
+MARKDOWN_SUFFIXES = {".md", ".markdown", ".txt"}
+SUPPORTED_UPLOAD_SUFFIXES = PDF_SUFFIXES | MARKDOWN_SUFFIXES
+UPLOAD_MEDIA_TYPES = {
+    ".pdf": "application/pdf",
+    ".md": "text/markdown; charset=utf-8",
+    ".markdown": "text/markdown; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+}
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 WORKSPACE_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -65,7 +75,31 @@ except ImportError:
     KNOWHERE_ENABLED = False
     logger.info("Knowhere bridge not available (import failed)")
 
-SENTENCE_RE = re.compile(r"[^.!?。！？;；]+(?:[.!?。！？;；]+|$)", re.MULTILINE)
+SENTENCE_TERMINATORS = ".!?。！？"
+SENTENCE_TRAILING_CLOSERS = "\"')]}”’）】"
+NON_TERMINAL_ABBREVIATIONS = {
+    "a.k.a.",
+    "al.",
+    "cf.",
+    "dr.",
+    "e.g.",
+    "eq.",
+    "fig.",
+    "figs.",
+    "i.e.",
+    "inc.",
+    "jr.",
+    "ltd.",
+    "mr.",
+    "mrs.",
+    "no.",
+    "prof.",
+    "ref.",
+    "refs.",
+    "sr.",
+    "st.",
+    "vs.",
+}
 
 app = FastAPI(
     title="SH Science Group Literature Database",
@@ -79,7 +113,6 @@ app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 _engine_ready = False
 _engine_error: str | None = None
 
-SENTENCE_RE = re.compile(r"[^.!?。！？;；]+(?:[.!?。！？;；]+|$)", re.MULTILINE)
 SOURCE_LINE_RE = re.compile(r"(?:line|lines)\s+(\d+)(?:\s*[-–]\s*(\d+))?", re.IGNORECASE)
 DISPLAY_LINE_REF_RE = re.compile(
     r"\s*[\[【(（]\s*(?:line|lines|行)\s*\d+(?:\s*[-–—~至到]\s*\d+)?\s*[\]】)）]",
@@ -340,10 +373,89 @@ def display_module_label(value: str) -> str:
     return re.sub(r"^module[_-]?\d+[_-]?", "", clean, flags=re.IGNORECASE).replace("_", " ").title()
 
 
+def _previous_token(value: str, index: int) -> str:
+    prefix = value[: index + 1].rstrip()
+    match = re.search(r"([A-Za-z](?:[A-Za-z.]*[A-Za-z])?\.)$", prefix)
+    return match.group(1).lower() if match else ""
+
+
+def _next_content_index(value: str, index: int) -> int:
+    cursor = index + 1
+    while cursor < len(value) and value[cursor] in SENTENCE_TRAILING_CLOSERS:
+        cursor += 1
+    while cursor < len(value) and value[cursor].isspace():
+        cursor += 1
+    return cursor
+
+
+def _is_sentence_boundary(value: str, index: int) -> bool:
+    char = value[index]
+    if char not in SENTENCE_TERMINATORS:
+        return False
+    if char == ".":
+        previous_char = value[index - 1] if index > 0 else ""
+        next_char = value[index + 1] if index + 1 < len(value) else ""
+        if previous_char.isdigit() and next_char.isdigit():
+            return False
+        token = _previous_token(value, index)
+        if token in NON_TERMINAL_ABBREVIATIONS or value[: index + 1].lower().endswith("et al."):
+            return False
+        if len(token) == 2 and token[0].isalpha():
+            initial_start = index - 1
+            before_initial = value[initial_start - 1] if initial_start > 0 else " "
+            if before_initial.isspace() or before_initial in "([{\"'“‘":
+                return False
+        if next_char and (next_char.isalpha() or next_char.isdigit()) and not next_char.isspace():
+            return False
+    next_index = _next_content_index(value, index)
+    if next_index >= len(value):
+        return True
+    next_char = value[next_index]
+    if next_char in SENTENCE_TERMINATORS:
+        return False
+    return next_char.isupper() or next_char.isdigit() or next_char in "([{\"'“‘"
+
+
+def _merge_sentence_fragments(sentences: list[str]) -> list[str]:
+    merged: list[str] = []
+    continuation_re = re.compile(
+        r"^(and|or|but|whereas|while|which|that|including|however|therefore|thus|then|also)\b",
+        re.IGNORECASE,
+    )
+    for sentence in sentences:
+        if merged and continuation_re.match(sentence):
+            merged[-1] = f"{merged[-1]} {sentence}".strip()
+        else:
+            merged.append(sentence)
+    return merged
+
+
 def split_sentences(text: str) -> list[str]:
-    cleaned = strip_markdown_inline(text)
-    sentences = [match.group(0).strip() for match in SENTENCE_RE.finditer(cleaned)]
-    return [sentence for sentence in sentences if sentence]
+    cleaned = re.sub(r"\s+", " ", strip_markdown_inline(text)).strip()
+    if not cleaned:
+        return []
+    sentences: list[str] = []
+    start = 0
+    index = 0
+    while index < len(cleaned):
+        if _is_sentence_boundary(cleaned, index):
+            end = index + 1
+            while end < len(cleaned) and cleaned[end] in SENTENCE_TRAILING_CLOSERS:
+                end += 1
+            sentence = cleaned[start:end].strip()
+            if sentence:
+                sentences.append(sentence)
+            start = end
+            while start < len(cleaned) and cleaned[start].isspace():
+                start += 1
+            index = start
+            continue
+        index += 1
+    tail = cleaned[start:].strip()
+    if tail:
+        sentences.append(tail)
+    return _merge_sentence_fragments(sentences)
+
 
 
 def iter_text_blocks(body: str) -> list[dict[str, Any]]:
@@ -529,7 +641,8 @@ def enrich_workspace_contexts(workspace: dict[str, Any], contexts: list[dict[str
             public_doc = public_workspace_document(workspace, document)
             item["doc_id"] = public_doc["id"]
             item["pdf_url"] = public_doc["pdf_url"]
-            item["url"] = public_doc["pdf_url"]
+            item["file_url"] = public_doc["file_url"]
+            item["url"] = public_doc["pdf_url"] or public_doc["file_url"]
             item["citation"] = item.get("citation") or public_doc["original_filename"]
         context_text = strip_markdown_inline(str(item.get("text", ""))).strip()
         sentences = [sentence for sentence in split_sentences(context_text) if len(sentence) >= 20]
@@ -542,12 +655,12 @@ def enrich_workspace_contexts(workspace: dict[str, Any], contexts: list[dict[str
                 {
                     "id": evidence_id,
                     "text": sentence,
-                    "section": "PDF excerpt",
+                    "section": "File excerpt",
                     "pmid": public_doc.get("pmid", "") if document else "",
                     "citekey": public_doc.get("citekey", "") if document else citation_key_for_evidence(item),
                     "doc_id": item.get("doc_id") or f"source-{source_index}",
                     "source_name": item.get("citation") or item.get("name") or "",
-                    "url": item.get("pdf_url") or item.get("url") or "",
+                    "url": item.get("pdf_url") or item.get("file_url") or item.get("url") or "",
                 }
             )
         item["evidence"] = evidences
@@ -622,7 +735,7 @@ def evidence_source_label(item: dict[str, Any]) -> str:
     pmid = str(item.get("pmid", "")).strip()
     if pmid:
         return f"PMID {pmid}"
-    source_name = str(item.get("source_name") or item.get("citation") or item.get("doc_id") or "uploaded PDF").strip()
+    source_name = str(item.get("source_name") or item.get("citation") or item.get("doc_id") or "uploaded file").strip()
     return source_name[:140]
 
 
@@ -880,27 +993,36 @@ def upload_file_path(item: dict[str, Any]) -> Path | None:
         path.relative_to(UPLOAD_DIR)
     except ValueError:
         return None
-    if path.exists() and path.suffix.lower() == ".pdf":
+    if path.exists() and path.suffix.lower() in SUPPORTED_UPLOAD_SUFFIXES:
         return path
     return None
 
 
-def public_pdf_upload(item: dict[str, Any] | None) -> dict[str, Any] | None:
+def public_file_upload(item: dict[str, Any] | None) -> dict[str, Any] | None:
     if not item or upload_file_path(item) is None:
         return None
     upload_id = int(item.get("id", 0) or 0)
     if not upload_id:
         return None
+    file_type = item.get("file_type") or upload_file_type(str(item.get("filename", "")))
     return {
         "available": True,
         "id": upload_id,
         "url": f"/api/uploads/{upload_id}/file",
+        "file_type": file_type,
         "filename": item.get("filename", ""),
         "original_filename": item.get("original_filename", ""),
         "uploaded_at": item.get("uploaded_at", ""),
         "uploader_name": item.get("uploader_name", ""),
         "status": item.get("status", "uploaded"),
     }
+
+
+def public_pdf_upload(item: dict[str, Any] | None) -> dict[str, Any] | None:
+    public = public_file_upload(item)
+    if not public or public.get("file_type") != "pdf":
+        return None
+    return public
 
 
 def latest_pdf_uploads_by_pmid() -> dict[str, dict[str, Any]]:
@@ -912,6 +1034,8 @@ def latest_pdf_uploads_by_pmid() -> dict[str, dict[str, Any]]:
     by_pmid: dict[str, dict[str, Any]] = {}
     for item in uploads:
         pmid = re.sub(r"\D", "", str(item.get("pmid", "")))
+        if (item.get("file_type") or upload_file_type(str(item.get("filename", "")))) != "pdf":
+            continue
         if not pmid or pmid in by_pmid or upload_file_path(item) is None:
             continue
         by_pmid[pmid] = item
@@ -1007,11 +1131,13 @@ def workspace_document_path(workspace: dict[str, Any], document: dict[str, Any])
     if not filename:
         return None
     path = (workspace_dir(str(workspace.get("id", ""))) / "pdfs" / filename).resolve()
+    if not path.exists():
+        path = (workspace_dir(str(workspace.get("id", ""))) / "files" / filename).resolve()
     try:
         path.relative_to(workspace_dir(str(workspace.get("id", ""))))
     except ValueError:
         return None
-    return path if path.exists() and path.suffix.lower() == ".pdf" else None
+    return path if path.exists() and path.suffix.lower() in SUPPORTED_UPLOAD_SUFFIXES else None
 
 
 def public_workspace_document(workspace: dict[str, Any], document: dict[str, Any]) -> dict[str, Any]:
@@ -1033,7 +1159,11 @@ def public_workspace_document(workspace: dict[str, Any], document: dict[str, Any
         "pmid": document.get("pmid", ""),
         "citekey": citekey,
         "status": document.get("status", "uploaded"),
-        "pdf_url": f"/api/workspaces/{workspace_id}/pdfs/{document_id}/file",
+        "file_type": document.get("file_type") or upload_file_type(str(document.get("filename", ""))),
+        "file_url": f"/api/workspaces/{workspace_id}/pdfs/{document_id}/file",
+        "pdf_url": f"/api/workspaces/{workspace_id}/pdfs/{document_id}/file"
+        if (document.get("file_type") or upload_file_type(str(document.get("filename", "")))) == "pdf"
+        else "",
     }
 
 
@@ -1068,6 +1198,25 @@ def resolve_user_from_body(body: dict[str, Any]) -> dict[str, Any] | None:
     if not name:
         return None
     return {"id": None, "name": normalize_user_name(name), "token": ""}
+
+
+def note_owner_key(user: dict[str, Any] | None) -> str:
+    if not user:
+        return ""
+    return str(user.get("id") or user.get("name") or "").strip().casefold()
+
+
+def paper_notes_for_user(user: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    owner = note_owner_key(user)
+    if not owner:
+        return {}
+    notes: dict[str, dict[str, Any]] = {}
+    for item in load_json_list(PAPER_NOTES_FILE):
+        item_owner = str(item.get("user_id") or item.get("user_name") or "").strip().casefold()
+        pmid = re.sub(r"\D", "", str(item.get("pmid", "")))
+        if pmid and item_owner == owner:
+            notes[pmid] = item
+    return notes
 
 
 def save_draft_record(
@@ -1105,6 +1254,67 @@ def safe_upload_name(filename: str, pmid: str) -> str:
     safe_base = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._") or "paper"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"pmid_{pmid}_{timestamp}_{safe_base}{suffix}"
+
+
+def upload_suffix(filename: str | None) -> str:
+    return Path(filename or "").suffix.lower()
+
+
+def upload_file_type(filename: str | None) -> str:
+    suffix = upload_suffix(filename)
+    if suffix in PDF_SUFFIXES:
+        return "pdf"
+    if suffix in MARKDOWN_SUFFIXES:
+        return "markdown"
+    return "file"
+
+
+def ensure_supported_upload(filename: str | None) -> str:
+    suffix = upload_suffix(filename)
+    if not filename or suffix not in SUPPORTED_UPLOAD_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Only PDF, Markdown, and text files are accepted")
+    return suffix
+
+
+def file_response_media_type(path: Path) -> str:
+    return UPLOAD_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+
+
+def markdown_upload_to_corpus(pmid: str, source_path: Path, original_filename: str) -> Path:
+    safe_pmid = re.sub(r"\D", "", pmid)
+    if not safe_pmid:
+        raise HTTPException(status_code=400, detail="A numeric PMID is required")
+
+    raw_text = source_path.read_text(encoding="utf-8", errors="replace").strip()
+    if not raw_text:
+        raise HTTPException(status_code=400, detail="Markdown file is empty")
+
+    metadata, body = parse_frontmatter(raw_text)
+    if not metadata:
+        title = first_heading(raw_text) or Path(original_filename).stem or f"PMID {safe_pmid}"
+        if re.search(r"^#{1,6}\s+", raw_text, flags=re.MULTILINE):
+            body = raw_text
+        else:
+            body = f"# {title}\n\n## Abstract\n\n{raw_text}"
+        raw_text = "\n".join([
+            "---",
+            f"pmid: {safe_pmid}",
+            f"title: {title}",
+            "primary_text_source: uploaded_markdown",
+            "---",
+            "",
+            body.strip(),
+            "",
+        ])
+    elif "pmid" not in {key.lower() for key in metadata}:
+        raw_text = raw_text.replace("---", f"---\npmid: {safe_pmid}", 1)
+
+    target = CORPUS_DIR / f"pmid_{safe_pmid}.md"
+    if target.exists():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        target = CORPUS_DIR / f"pmid_{safe_pmid}_upload_{timestamp}.md"
+    target.write_text(raw_text, encoding="utf-8")
+    return target
 
 
 def knowhere_webhook_url() -> str:
@@ -1730,11 +1940,20 @@ async def api_health():
 
 
 @app.get("/api/papers")
-async def api_papers():
+async def api_papers(request: Request):
     papers = load_papers()
     pdf_uploads = latest_pdf_uploads_by_pmid()
+    user = find_user_by_token(request.query_params.get("user_token"))
+    notes = paper_notes_for_user(user)
+    enriched_papers = []
+    for paper in papers:
+        row = paper_with_pdf_upload(paper, pdf_uploads)
+        note = notes.get(re.sub(r"\D", "", str(row.get("pmid", "")))) or {}
+        row["user_note"] = note.get("note", "")
+        row["note_updated_at"] = note.get("updated_at", "")
+        enriched_papers.append(row)
     return {
-        "papers": [paper_with_pdf_upload(paper, pdf_uploads) for paper in papers],
+        "papers": enriched_papers,
         "summary": {
             "count": len(papers),
             "priority_counts": count_by(papers, "priority"),
@@ -1765,6 +1984,56 @@ async def api_citations_csv():
 @app.get("/api/papers/{pmid}")
 async def api_paper_detail(pmid: str):
     return get_paper_by_pmid(pmid)
+
+
+@app.patch("/api/papers/{pmid}/note")
+async def api_update_paper_note(pmid: str, request: Request):
+    safe_pmid = re.sub(r"\D", "", pmid)
+    if not safe_pmid:
+        raise HTTPException(status_code=400, detail="A numeric PMID is required")
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    user = resolve_user_from_body(body)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+
+    note = str(body.get("note", "")).strip()[:5000]
+    owner = note_owner_key(user)
+    now = datetime.now().isoformat()
+    records = load_json_list(PAPER_NOTES_FILE)
+    kept: list[dict[str, Any]] = []
+    updated: dict[str, Any] | None = None
+    for item in records:
+        item_owner = str(item.get("user_id") or item.get("user_name") or "").strip().casefold()
+        item_pmid = re.sub(r"\D", "", str(item.get("pmid", "")))
+        if item_owner == owner and item_pmid == safe_pmid:
+            if note:
+                updated = {
+                    **item,
+                    "pmid": safe_pmid,
+                    "user_id": user.get("id"),
+                    "user_name": user.get("name", ""),
+                    "note": note,
+                    "updated_at": now,
+                }
+                kept.append(updated)
+            continue
+        kept.append(item)
+    if note and updated is None:
+        updated = {
+            "id": str(uuid.uuid4()),
+            "pmid": safe_pmid,
+            "user_id": user.get("id"),
+            "user_name": user.get("name", ""),
+            "note": note,
+            "created_at": now,
+            "updated_at": now,
+        }
+        kept.append(updated)
+    save_json_list(PAPER_NOTES_FILE, kept[-2000:])
+    return {"ok": True, "note": updated or {"pmid": safe_pmid, "note": "", "updated_at": now}}
 
 
 @app.get("/api/papers/{pmid}/evidence")
@@ -1864,18 +2133,18 @@ async def api_workspace_upload_pdf(
     pmid: str = Form(""),
 ):
     workspace = find_workspace(workspace_id)
-    if not file.filename or Path(file.filename).suffix.lower() != ".pdf":
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+    suffix = ensure_supported_upload(file.filename)
+    file_type = upload_file_type(file.filename)
     library_type = normalize_library_type(str(workspace.get("library_type", "personal")))
     clean_pmid = re.sub(r"\D", "", pmid)
     if library_type == "team" and not clean_pmid:
         raise HTTPException(status_code=400, detail="A numeric PMID is required for team workspaces")
     if library_type == "personal" and len(workspace.get("documents", [])) >= 99:
-        raise HTTPException(status_code=400, detail="Small literature libraries support fewer than 100 PDFs")
-    pdf_dir = workspace_dir(workspace_id) / "pdfs"
-    pdf_dir.mkdir(parents=True, exist_ok=True)
+        raise HTTPException(status_code=400, detail="Small literature libraries support fewer than 100 files")
+    target_dir = workspace_dir(workspace_id) / ("pdfs" if suffix in PDF_SUFFIXES else "files")
+    target_dir.mkdir(parents=True, exist_ok=True)
     safe_name = safe_workspace_upload_name(file.filename)
-    destination = pdf_dir / safe_name
+    destination = target_dir / safe_name
     size = 0
     try:
         with destination.open("wb") as out:
@@ -1884,7 +2153,7 @@ async def api_workspace_upload_pdf(
                 if size > MAX_UPLOAD_BYTES:
                     out.close()
                     destination.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail="PDF exceeds upload size limit")
+                    raise HTTPException(status_code=413, detail="File exceeds upload size limit")
                 out.write(chunk)
     finally:
         await file.close()
@@ -1897,6 +2166,7 @@ async def api_workspace_upload_pdf(
         "uploaded_at": datetime.now().isoformat(),
         "file_size": size,
         "pmid": clean_pmid,
+        "file_type": file_type,
         "status": "uploaded",
     }
     workspaces = load_workspaces()
@@ -1919,13 +2189,13 @@ async def api_workspace_pdf_file(workspace_id: str, document_id: str):
             target = document
             break
     if not target:
-        raise HTTPException(status_code=404, detail="PDF not found")
+        raise HTTPException(status_code=404, detail="File not found")
     path = workspace_document_path(workspace, target)
     if not path:
-        raise HTTPException(status_code=404, detail="PDF file not found")
+        raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
         path,
-        media_type="application/pdf",
+        media_type=file_response_media_type(path),
         filename=str(target.get("original_filename") or path.name),
         content_disposition_type="inline",
     )
@@ -1948,7 +2218,7 @@ async def api_workspace_query(workspace_id: str, request: Request):
         if path
     ]
     if not paths:
-        raise HTTPException(status_code=400, detail="Upload at least one PDF before asking PaperQA")
+        raise HTTPException(status_code=400, detail="Upload at least one file before asking PaperQA")
     from paperqa_engine import query_files
 
     try:
@@ -2281,8 +2551,8 @@ async def api_upload(
         raise HTTPException(status_code=400, detail="A numeric PMID is required")
     if not uploader_name.strip():
         raise HTTPException(status_code=400, detail="Uploader name is required")
-    if not file.filename or Path(file.filename).suffix.lower() != ".pdf":
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+    suffix = ensure_supported_upload(file.filename)
+    file_type = upload_file_type(file.filename)
 
     safe_name = safe_upload_name(file.filename, clean_pmid)
     destination = UPLOAD_DIR / safe_name
@@ -2295,7 +2565,7 @@ async def api_upload(
                 if size > MAX_UPLOAD_BYTES:
                     out.close()
                     destination.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail="PDF exceeds upload size limit")
+                    raise HTTPException(status_code=413, detail="File exceeds upload size limit")
                 out.write(chunk)
     finally:
         await file.close()
@@ -2309,6 +2579,7 @@ async def api_upload(
         "uploader_name": uploader_name.strip(),
         "uploaded_at": datetime.now().isoformat(),
         "file_size": size,
+        "file_type": file_type,
         "status": "uploaded",
     }
     metadata.append(entry)
@@ -2317,7 +2588,14 @@ async def api_upload(
 
     # Auto-submit to Knowhere for parsing if enabled
     knowhere_info = None
-    if KNOWHERE_ENABLED and clean_pmid:
+    if suffix in MARKDOWN_SUFFIXES:
+        corpus_path = markdown_upload_to_corpus(clean_pmid, destination, file.filename)
+        entry["corpus_path"] = str(corpus_path)
+        entry["status"] = "indexed"
+        save_uploads_metadata(metadata)
+        add_paper_to_engine_background(str(corpus_path), f"Markdown upload PMID {clean_pmid}")
+        knowhere_info = {"markdown_indexed": True, "corpus_path": str(corpus_path)}
+    elif KNOWHERE_ENABLED and clean_pmid:
         try:
             webhook_url = knowhere_webhook_url()
             result = submit_parse_job(
@@ -2354,7 +2632,13 @@ async def api_uploads():
     uploads = []
     for item in metadata:
         public_pdf = public_pdf_upload(item)
-        uploads.append({**item, "pdf_url": public_pdf["url"] if public_pdf else ""})
+        public_file = public_file_upload(item)
+        uploads.append({
+            **item,
+            "file_type": item.get("file_type") or upload_file_type(str(item.get("filename", ""))),
+            "file_url": public_file["url"] if public_file else "",
+            "pdf_url": public_pdf["url"] if public_pdf else "",
+        })
     return {"uploads": uploads}
 
 
@@ -2418,10 +2702,10 @@ async def api_upload_file(upload_id: int):
         raise HTTPException(status_code=404, detail="Upload not found")
     path = upload_file_path(target)
     if not path:
-        raise HTTPException(status_code=404, detail="PDF file not found")
+        raise HTTPException(status_code=404, detail="Uploaded file not found")
     return FileResponse(
         path,
-        media_type="application/pdf",
+        media_type=file_response_media_type(path),
         filename=str(target.get("original_filename") or path.name),
         content_disposition_type="inline",
     )

@@ -53,13 +53,13 @@
             <button class="project-card" id="open-aps-project" type="button">
                 <span class="project-kicker" data-i18n="apsKicker">Active dataset</span>
                 <strong data-i18n="apsTitle">APS Review</strong>
-                <span data-i18n="apsDescription">Systematic review corpus with PaperQA search, paper inspection, and PDF upload queue.</span>
+                <span data-i18n="apsDescription">Systematic review corpus with PaperQA search, paper inspection, and file upload queue.</span>
                 <em data-i18n="enterProject">Enter project</em>
             </button>
             <form class="project-card create-workspace-card" id="create-workspace-form">
                 <span class="project-kicker" data-i18n="newWorkspaceKicker">Custom workspace</span>
                 <strong data-i18n="newWorkspaceTitle">Add workspace</strong>
-                <span data-i18n="newWorkspaceDescription">Create a small PDF library, then ask PaperQA and draft from selected evidence.</span>
+                <span data-i18n="newWorkspaceDescription">Create a small file library, then ask PaperQA and draft from selected evidence.</span>
                 <button class="primary-button workspace-start-button" id="start-create-workspace" type="button" data-i18n="createWorkspace">Create workspace</button>
                 <div class="workspace-create-setup hidden" id="workspace-create-setup">
                     <div class="workspace-type-options" role="radiogroup" aria-label="Workspace type">
@@ -67,14 +67,14 @@
                             <input type="radio" name="workspace-type" value="personal" checked>
                             <span>
                                 <strong data-i18n="personalWorkspace">Small literature library</strong>
-                                <small data-i18n="personalWorkspaceHint">No PMID required, fewer than 100 PDFs, suitable for 2-5 collaborators.</small>
+                                <small data-i18n="personalWorkspaceHint">No PMID required, fewer than 100 files, suitable for 2-5 collaborators.</small>
                             </span>
                         </label>
                         <label class="workspace-type-option">
                             <input type="radio" name="workspace-type" value="team">
                             <span>
                                 <strong data-i18n="teamWorkspace">Team library</strong>
-                                <small data-i18n="teamWorkspaceHint">PMID required for each PDF.</small>
+                                <small data-i18n="teamWorkspaceHint">PMID required for each uploaded file.</small>
                             </span>
                         </label>
                     </div>
@@ -169,9 +169,9 @@
                 </section>
 
                 <section class="panel">
-                    <p class="panel-label" data-i18n="uploadPdf">Upload PDF</p>
+                    <p class="panel-label" data-i18n="uploadPdf">Upload file</p>
                     <form id="upload-form" class="upload-form">
-                        <input id="upload-file" class="file-input" type="file" accept=".pdf,application/pdf">
+                        <input id="upload-file" class="file-input" type="file" accept=".pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain">
                         <input id="upload-pmid" class="text-input" type="text" placeholder="PMID" data-i18n-placeholder="pmidPlaceholder">
                         <p class="signed-upload" id="signed-upload"></p>
                         <button class="primary-button" type="submit" data-i18n="uploadButton">Upload</button>
@@ -195,6 +195,11 @@
                         </div>
                         <div class="header-search">
                             <input id="search-input" class="text-input" type="search" aria-label="Search literature" data-i18n-aria-label="searchLiterature" data-i18n-placeholder="searchPlaceholder" placeholder="Search PMID, title, journal, module">
+                            <input id="note-search-input" class="text-input" type="search" aria-label="Search notes" data-i18n-aria-label="searchNotes" data-i18n-placeholder="noteSearchPlaceholder" placeholder="Search notes">
+                            <label class="note-filter-toggle">
+                                <input id="notes-only-filter" type="checkbox">
+                                <span data-i18n="notesOnly">Only noted</span>
+                            </label>
                         </div>
                         <div class="pagination-controls" id="paper-pagination">
                             <button class="secondary-button small-button" id="prev-page" type="button" data-i18n="previousPage">Previous</button>
@@ -247,7 +252,7 @@
                 <section id="view-uploads" class="view">
                     <div class="section-header">
                         <div>
-                            <p class="panel-label" data-i18n="manualPdfs">Manual PDFs</p>
+                            <p class="panel-label" data-i18n="manualPdfs">Manual files</p>
                             <h2 data-i18n="uploadQueue">Upload queue</h2>
                         </div>
                         <div class="upload-toolbar">
@@ -306,8 +311,8 @@
                                 <p data-i18n="guideRecordsText">Generated paragraphs and article drafts are saved under the current user account after successful LLM generation.</p>
                             </li>
                             <li class="guide-step">
-                                <h3 data-i18n="guideUploadTitle">7. Upload PDFs</h3>
-                                <p data-i18n="guideUploadText">Use the upload panel for manual PDFs. A PMID is required, and the current user name is recorded with the upload.</p>
+                                <h3 data-i18n="guideUploadTitle">7. Upload files</h3>
+                                <p data-i18n="guideUploadText">Use the upload panel for manual PDFs, Markdown abstracts, or plain-text notes. A PMID is required, and the current user name is recorded with the upload.</p>
                             </li>
                         </ol>
                         <section class="guide-updates">
@@ -367,11 +372,16 @@
                                 <p class="panel-label" data-i18n="outlinePanel">Manuscript outline</p>
                                 <h3 data-i18n="outlinePanelTitle">Sections</h3>
                             </div>
-                            <span class="outline-count" id="outline-count">0</span>
+                            <div class="outline-panel-actions">
+                                <button class="secondary-button small-button" id="outline-add-section" type="button" data-i18n="outlineAddSection">Add section</button>
+                                <span class="outline-count" id="outline-count">0</span>
+                            </div>
                         </div>
+                        <p class="outline-tree-hint" data-i18n="outlineTreeHint">Markdown headings are shown as a section tree. Choose one section to retrieve evidence.</p>
                         <div class="outline-list" id="outline-list">
                             <p class="empty-note" data-i18n="outlineEmpty">Import a Markdown outline to plan section-level retrieval.</p>
                         </div>
+                        <div class="outline-side-editor" id="outline-side-editor"></div>
                     </aside>
                     <section class="outline-detail" id="outline-detail">
                         <p class="empty-note" data-i18n="outlineDetailEmpty">Select a section to build a retrieval query and assign evidence.</p>

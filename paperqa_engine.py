@@ -235,11 +235,11 @@ async def query_files(
 
     paths = [Path(path).resolve() for path in file_paths if Path(path).exists()]
     if not paths:
-        raise RuntimeError("No PDF files are available in this workspace")
+        raise RuntimeError("No files are available in this workspace")
 
     docs = await _build_docs_from_files(api_key, paths)
     if not getattr(docs, "docs", None):
-        raise RuntimeError("PaperQA could not parse any uploaded PDF files")
+        raise RuntimeError("PaperQA could not parse any uploaded files")
 
     result = await docs.aquery(query=question, k=k, max_sources=max_sources)
     contexts = []
