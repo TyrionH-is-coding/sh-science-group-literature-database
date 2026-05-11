@@ -19,6 +19,7 @@ const state = {
     userName: storedAuthVersion === AUTH_VERSION ? (localStorage.getItem("litdb.userName") || "") : "",
     userToken: storedAuthVersion === AUTH_VERSION ? (localStorage.getItem("litdb.userToken") || "") : "",
     userId: storedAuthVersion === AUTH_VERSION ? (localStorage.getItem("litdb.userId") || "") : "",
+    isAdmin: storedAuthVersion === AUTH_VERSION ? localStorage.getItem("litdb.isAdmin") === "1" : false,
     mustChangePassword: false,
     lang: localStorage.getItem("litdb.lang") || "en",
     project: sessionStorage.getItem("litdb.project") || "",
@@ -82,6 +83,10 @@ const i18n = {
         deleteWorkspaceConfirm: "Delete this library and its uploaded files?",
         deleteWorkspaceBlocked: "Team libraries can only be deleted by administrators.",
         workspaceDeleted: "Library deleted.",
+        adminRole: "Admin",
+        ownerLabel: "Owner",
+        adminManagedWorkspace: "Admin access",
+        workspaceLocked: "Only the creator or an administrator can open this library.",
         workspaceTypePersonal: "Small library",
         workspaceTypeTeam: "Team",
         customWorkspace: "Custom workspace",
@@ -212,6 +217,13 @@ const i18n = {
         outlineSaveSection: "Save section",
         outlineDeleteSection: "Delete section",
         outlineDeleteConfirm: "Delete this section and its subsections?",
+        outlineDropEvidence: "Drop evidence here",
+        outlineAssignedEvidence: "Evidence under this section",
+        outlineEvidencePool: "Evidence pool",
+        outlineEvidencePoolHint: "Drag any saved evidence or retrieved evidence to any section in the structure tree.",
+        outlineNoAssignedEvidence: "No evidence assigned to this section yet.",
+        outlineNoPoolEvidence: "No saved evidence yet. Retrieve or select sentences first.",
+        outlineEvidenceMoved: "Evidence moved to section.",
         outlineSectionTitle: "Section title",
         outlineSectionLevel: "Heading level",
         outlineSectionNotesEditor: "Section prompt notes",
@@ -413,6 +425,10 @@ const i18n = {
         deleteWorkspaceConfirm: "确定删除这个文献库和其中已上传的文件吗？",
         deleteWorkspaceBlocked: "多人合作文献库仅管理员可删除。",
         workspaceDeleted: "文献库已删除。",
+        adminRole: "管理员",
+        ownerLabel: "创建者",
+        adminManagedWorkspace: "管理员权限",
+        workspaceLocked: "仅创建者或管理员可以打开这个文献库。",
         workspaceTypePersonal: "小型库",
         workspaceTypeTeam: "团队",
         customWorkspace: "自建工作区",
@@ -543,6 +559,13 @@ const i18n = {
         outlineSaveSection: "保存章节",
         outlineDeleteSection: "删除章节",
         outlineDeleteConfirm: "确定删除这个章节及其下级章节吗？",
+        outlineDropEvidence: "拖拽证据到这里",
+        outlineAssignedEvidence: "本标题下的证据",
+        outlineEvidencePool: "证据池",
+        outlineEvidencePoolHint: "自选库或检索结果里的任意证据，都可以拖到左侧任意标题下。",
+        outlineNoAssignedEvidence: "这个标题下还没有分配证据。",
+        outlineNoPoolEvidence: "证据池还没有内容，请先检索或选择句子。",
+        outlineEvidenceMoved: "证据已移动到该标题下。",
         outlineSectionTitle: "章节标题",
         outlineSectionLevel: "标题层级",
         outlineSectionNotesEditor: "章节提示",
@@ -881,16 +904,37 @@ function draftLibraryContext() {
     return isCustomWorkspace() ? "general_review" : "aps_review";
 }
 
-function canDeleteWorkspace(workspace) {
-    if (!workspace || workspace.library_type === "team") return false;
+function isWorkspaceOwner(workspace) {
+    if (!workspace) return false;
     if (workspace.owner_user_id && state.userId) return workspace.owner_user_id === state.userId;
     return Boolean(workspace.owner_name && state.userName && workspace.owner_name.toLowerCase() === state.userName.toLowerCase());
 }
 
+function canOpenWorkspace(workspace) {
+    if (!workspace) return false;
+    if (workspace.can_open !== undefined) return Boolean(workspace.can_open);
+    return state.isAdmin || isWorkspaceOwner(workspace);
+}
+
+function canDeleteWorkspace(workspace) {
+    if (!workspace) return false;
+    if (workspace.can_delete !== undefined) return Boolean(workspace.can_delete);
+    if (state.isAdmin) return true;
+    return workspace.library_type !== "team" && isWorkspaceOwner(workspace);
+}
+
 function canEditWorkspace(workspace) {
     if (!workspace) return false;
-    if (workspace.owner_user_id && state.userId) return workspace.owner_user_id === state.userId;
-    return Boolean(workspace.owner_name && state.userName && workspace.owner_name.toLowerCase() === state.userName.toLowerCase());
+    if (workspace.can_edit !== undefined) return Boolean(workspace.can_edit);
+    return isWorkspaceOwner(workspace);
+}
+
+function workspaceFileUrl(doc) {
+    const rawUrl = doc?.file_url || doc?.pdf_url || "";
+    if (!rawUrl) return "";
+    if (!state.userToken || /^https?:\/\//i.test(rawUrl)) return rawUrl;
+    const separator = rawUrl.includes("?") ? "&" : "?";
+    return `${rawUrl}${separator}user_token=${encodeURIComponent(state.userToken)}`;
 }
 
 function bindLogin() {
@@ -997,6 +1041,7 @@ function clearPasswordFields() {
 
 function afterSuccessfulLogin() {
     refreshUserState();
+    loadWorkspaces();
     loadDraftHistory();
     openRequestedComposer();
 }
@@ -1025,8 +1070,13 @@ function returnToProjectHub() {
 async function loadWorkspaces() {
     if (!els.customWorkspaces) return;
     try {
-        const data = await fetchJson("/api/workspaces");
+        const tokenQuery = state.userToken ? `?user_token=${encodeURIComponent(state.userToken)}` : "";
+        const data = await fetchJson(`/api/workspaces${tokenQuery}`);
         state.customWorkspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
+        if (typeof data.is_admin === "boolean") {
+            state.isAdmin = data.is_admin;
+            localStorage.setItem("litdb.isAdmin", state.isAdmin ? "1" : "0");
+        }
         if (isCustomWorkspace()) {
             state.activeWorkspace = state.customWorkspaces.find((item) => item.id === activeWorkspaceId()) || state.activeWorkspace;
             refreshUserState();
@@ -1047,6 +1097,8 @@ function renderCustomWorkspaces() {
                 <span class="project-kicker">${escapeHtml(workspaceTypeLabel(workspace))} · ${escapeHtml(t("customWorkspace"))}</span>
                 <strong>${escapeHtml(workspace.name)}</strong>
                 ${workspace.description ? `<span class="workspace-card-description">${escapeHtml(workspace.description)}</span>` : ""}
+                ${workspace.owner_name ? `<span class="workspace-owner-line">${escapeHtml(t("ownerLabel"))}: ${escapeHtml(workspace.owner_name)}</span>` : ""}
+                ${workspace.is_admin_view ? `<span class="admin-access-pill">${escapeHtml(t("adminManagedWorkspace"))}</span>` : ""}
                 <span>${escapeHtml(workspace.document_count || 0)} ${escapeHtml(t("pdfFiles"))}${workspace.requires_pmid ? ` · PMID` : ""}</span>
             </button>
             <form class="workspace-edit-form hidden" data-edit-form="${escapeHtml(workspace.id)}">
@@ -1061,7 +1113,7 @@ function renderCustomWorkspaces() {
                 <button class="workspace-enter-button" type="button" data-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("enterProject"))}</button>
                 <button class="workspace-edit-button ${canEditWorkspace(workspace) ? "" : "hidden"}" type="button" data-edit-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("editWorkspace"))}</button>
                 <button class="text-button workspace-delete-button ${canDeleteWorkspace(workspace) ? "" : "hidden"}" type="button" data-delete-workspace-id="${escapeHtml(workspace.id)}">${escapeHtml(t("deleteWorkspace"))}</button>
-                <span class="workspace-delete-note ${workspace.library_type === "team" ? "" : "hidden"}">${escapeHtml(t("deleteWorkspaceBlocked"))}</span>
+                <span class="workspace-delete-note ${workspace.library_type === "team" && !state.isAdmin ? "" : "hidden"}">${escapeHtml(t("deleteWorkspaceBlocked"))}</span>
             </div>
         </article>
     `).join("");
@@ -1174,6 +1226,10 @@ async function createWorkspace(event) {
 
 function openCustomWorkspace(workspaceId) {
     const workspace = state.customWorkspaces.find((item) => item.id === workspaceId) || { id: workspaceId, name: t("customWorkspace") };
+    if (!canOpenWorkspace(workspace)) {
+        window.alert(t("workspaceLocked"));
+        return;
+    }
     state.project = `workspace:${workspaceId}`;
     state.activeWorkspace = workspace;
     state.evidenceLibrary = [];
@@ -1189,12 +1245,14 @@ function switchUser() {
     state.userName = "";
     state.userToken = "";
     state.userId = "";
+    state.isAdmin = false;
     state.mustChangePassword = false;
     state.project = "";
     state.draftHistory = [];
     localStorage.removeItem("litdb.userName");
     localStorage.removeItem("litdb.userToken");
     localStorage.removeItem("litdb.userId");
+    localStorage.removeItem("litdb.isAdmin");
     localStorage.removeItem("litdb.authVersion");
     sessionStorage.removeItem("litdb.project");
     clearPasswordFields();
@@ -1210,16 +1268,19 @@ function applyUser(user, options = {}) {
     state.userName = (user.name || "").trim();
     state.userToken = user.token || "";
     state.userId = user.id || "";
+    state.isAdmin = Boolean(user.is_admin);
     state.mustChangePassword = Boolean(user.must_change_password);
     if (persist && !state.mustChangePassword) {
         localStorage.setItem("litdb.userName", state.userName);
         if (state.userToken) localStorage.setItem("litdb.userToken", state.userToken);
         if (state.userId) localStorage.setItem("litdb.userId", state.userId);
+        localStorage.setItem("litdb.isAdmin", state.isAdmin ? "1" : "0");
         localStorage.setItem("litdb.authVersion", AUTH_VERSION);
     } else {
         localStorage.removeItem("litdb.userName");
         localStorage.removeItem("litdb.userToken");
         localStorage.removeItem("litdb.userId");
+        localStorage.removeItem("litdb.isAdmin");
         localStorage.removeItem("litdb.authVersion");
     }
 }
@@ -1289,6 +1350,7 @@ function applyLanguage() {
     renderDraftHistory();
     renderManuscriptOutline();
     renderWritingFlow();
+    renderCustomWorkspaces();
     if (state.uploads.length) renderUploads();
     populateModuleFilter(state.moduleCounts);
 }
@@ -1310,6 +1372,10 @@ function refreshUserState() {
     els.loginName.value = state.userName;
     els.userChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
     els.projectUserChip.textContent = state.userName ? `${state.userName} · ${t("switchUser")}` : t("loginButton");
+    if (state.userName && state.isAdmin) {
+        els.userChip.textContent = `${state.userName} · ${t("adminRole")} · ${t("switchUser")}`;
+        els.projectUserChip.textContent = `${state.userName} · ${t("adminRole")} · ${t("switchUser")}`;
+    }
     document.querySelector("[data-i18n='appEyebrow']").textContent = custom ? t("customWorkspace") : t("appEyebrow");
     document.querySelector("[data-i18n='appTitle']").textContent = custom ? (state.activeWorkspace?.name || t("customWorkspace")) : t("appTitle");
     document.querySelector("[data-i18n='reviewReadyPapers']").textContent = custom ? t("pdfLibrary") : t("reviewReadyPapers");
@@ -1571,7 +1637,8 @@ async function loadWorkspacePdfs() {
     const workspaceId = activeWorkspaceId();
     if (!workspaceId) return;
     try {
-        const data = await fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/pdfs`);
+        const tokenQuery = state.userToken ? `?user_token=${encodeURIComponent(state.userToken)}` : "";
+        const data = await fetchJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/pdfs${tokenQuery}`);
         state.activeWorkspace = data.workspace || state.activeWorkspace;
         state.workspaceDocuments = Array.isArray(data.documents) ? data.documents : [];
         els.metricPapers.textContent = state.workspaceDocuments.length;
@@ -1580,6 +1647,9 @@ async function loadWorkspacePdfs() {
         renderUploads();
     } catch (error) {
         els.papersBody.innerHTML = `<tr><td colspan="3" class="error-text">${escapeHtml(error.message)}</td></tr>`;
+        if (error.status === 401 || error.status === 403) {
+            window.setTimeout(returnToProjectHub, 800);
+        }
     }
 }
 
@@ -1610,7 +1680,7 @@ function renderWorkspacePdfs() {
 function selectWorkspacePdf(documentId) {
     const doc = state.workspaceDocuments.find((item) => item.id === documentId);
     if (!doc) return;
-    const fileUrl = doc.file_url || doc.pdf_url || "";
+    const fileUrl = workspaceFileUrl(doc);
     els.paperDetail.innerHTML = `
         <h3>${escapeHtml(doc.original_filename || doc.filename)}</h3>
         <p class="paper-meta">${escapeHtml(t("customWorkspace"))} · ${escapeHtml(formatDate(doc.uploaded_at))}</p>
@@ -1863,7 +1933,7 @@ async function askPaperQA(question) {
         const result = await fetchJson(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question, k: 10, max_sources: 5, priority_scope: priorityScope }),
+            body: JSON.stringify({ question, k: 10, max_sources: 5, priority_scope: priorityScope, user_token: state.userToken }),
         });
 
         renderLlmInfo({ paperqa: result.llm, draft: result.draft_llm });
@@ -2075,12 +2145,14 @@ function normalizeManuscriptOutlineLevels() {
             level: normalizedLevel,
             title: String(section.title || `${t("newOutlineSection")} ${index + 1}`).trim(),
             notes: String(section.notes || ""),
+            evidenceKeys: Array.isArray(section.evidenceKeys) ? section.evidenceKeys.filter(Boolean).slice(0, 120) : [],
         };
         changed = changed
             || normalized.level !== section.level
             || normalized.id !== section.id
             || normalized.title !== section.title
-            || normalized.notes !== section.notes;
+            || normalized.notes !== section.notes
+            || JSON.stringify(normalized.evidenceKeys) !== JSON.stringify(section.evidenceKeys || []);
         return normalized;
     });
     if (changed) saveManuscriptOutline();
@@ -2232,6 +2304,7 @@ function addOutlineSection(mode = "after") {
         level,
         title,
         notes: "",
+        evidenceKeys: [],
     };
     const insertIndex = activeIndex >= 0
         ? asChild
@@ -2294,6 +2367,7 @@ function renderManuscriptOutline() {
             renderManuscriptOutline();
         });
     });
+    bindOutlineDropTargets(els.outlineList);
     renderOutlineSideEditor();
     renderOutlineDetail();
 }
@@ -2335,12 +2409,13 @@ function renderOutlineSideEditor() {
 function renderOutlineTreeNode(section) {
     const retrieval = state.outlineRetrieval[section.id] || {};
     const contexts = Array.isArray(retrieval.contexts) ? retrieval.contexts : [];
+    const assignedKeys = Array.isArray(section.evidenceKeys) ? section.evidenceKeys.filter(Boolean) : [];
     const selectedKeys = Array.isArray(retrieval.selectedKeys)
         ? retrieval.selectedKeys.filter((key) => contexts.some((item) => item.key === key))
         : contexts.map((item) => item.key);
-    const hasEvidence = contexts.length > 0;
+    const hasEvidence = assignedKeys.length > 0 || contexts.length > 0;
     return `
-        <button class="outline-section-button ${section.id === state.activeOutlineId ? "active" : ""} ${hasEvidence ? "has-evidence" : ""}" type="button" data-id="${escapeHtml(section.id)}" style="--outline-level:${Math.max(0, clampHeadingLevel(section.level) - 1)}">
+        <button class="outline-section-button ${section.id === state.activeOutlineId ? "active" : ""} ${hasEvidence ? "has-evidence" : ""}" type="button" data-id="${escapeHtml(section.id)}" data-outline-drop-section-id="${escapeHtml(section.id)}" style="--outline-level:${Math.max(0, clampHeadingLevel(section.level) - 1)}">
             <span class="outline-tree-main">
                 <span class="outline-branch" aria-hidden="true"></span>
                 <span class="outline-node-dot" aria-hidden="true"></span>
@@ -2348,10 +2423,99 @@ function renderOutlineTreeNode(section) {
             </span>
             <span class="outline-node-meta">
                 <small>${escapeHtml(headingLevelLabel(section.level))}</small>
-                ${hasEvidence ? `<em>${escapeHtml(String(selectedKeys.length))}/${escapeHtml(String(contexts.length))}</em>` : ""}
+                ${assignedKeys.length ? `<em>${escapeHtml(String(assignedKeys.length))}</em>` : hasEvidence ? `<em>${escapeHtml(String(selectedKeys.length))}/${escapeHtml(String(contexts.length))}</em>` : ""}
             </span>
         </button>
     `;
+}
+
+function allKnownEvidenceItems() {
+    const map = new Map();
+    for (const item of state.evidenceLibrary || []) {
+        if (item?.key) map.set(item.key, item);
+    }
+    for (const retrieval of Object.values(state.outlineRetrieval || {})) {
+        for (const item of retrieval?.contexts || []) {
+            if (item?.key && !map.has(item.key)) map.set(item.key, item);
+        }
+    }
+    return Array.from(map.values());
+}
+
+function findEvidenceItemByKey(key) {
+    return allKnownEvidenceItems().find((item) => item.key === key) || null;
+}
+
+function sectionEvidenceKeys(section) {
+    return Array.isArray(section?.evidenceKeys) ? section.evidenceKeys.filter(Boolean) : [];
+}
+
+function assignedSectionEvidence(section) {
+    const keys = sectionEvidenceKeys(section);
+    return keys.map(findEvidenceItemByKey).filter(Boolean);
+}
+
+function moveEvidenceToOutlineSection(key, targetSectionId) {
+    if (!key || !targetSectionId) return false;
+    const item = findEvidenceItemByKey(key);
+    if (!item) return false;
+    for (const section of state.manuscriptOutline) {
+        section.evidenceKeys = sectionEvidenceKeys(section).filter((itemKey) => itemKey !== key);
+    }
+    const target = state.manuscriptOutline.find((section) => section.id === targetSectionId);
+    if (!target) return false;
+    target.evidenceKeys = [...sectionEvidenceKeys(target), key].slice(0, 120);
+    if (!evidenceLibraryHas(key)) {
+        state.evidenceLibrary.push(item);
+        saveEvidenceLibrary();
+        renderEvidenceLibrary();
+    }
+    saveManuscriptOutline();
+    state.activeOutlineId = targetSectionId;
+    state.writingBlueprint = "";
+    saveWritingBlueprint();
+    renderManuscriptOutline();
+    showWritingMessage(t("outlineEvidenceMoved"), false);
+    return true;
+}
+
+function removeEvidenceFromOutlineSection(sectionId, key) {
+    const section = state.manuscriptOutline.find((item) => item.id === sectionId);
+    if (!section || !key) return;
+    section.evidenceKeys = sectionEvidenceKeys(section).filter((itemKey) => itemKey !== key);
+    saveManuscriptOutline();
+    state.writingBlueprint = "";
+    saveWritingBlueprint();
+    renderManuscriptOutline();
+}
+
+function bindEvidenceDragSources(root = document) {
+    root.querySelectorAll("[data-drag-evidence-key]").forEach((node) => {
+        node.addEventListener("dragstart", (event) => {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", node.dataset.dragEvidenceKey || "");
+            event.dataTransfer.setData("application/x-litdb-evidence", node.dataset.dragEvidenceKey || "");
+            node.classList.add("dragging");
+        });
+        node.addEventListener("dragend", () => node.classList.remove("dragging"));
+    });
+}
+
+function bindOutlineDropTargets(root = document) {
+    root.querySelectorAll("[data-outline-drop-section-id]").forEach((target) => {
+        target.addEventListener("dragover", (event) => {
+            event.preventDefault();
+            target.classList.add("drop-active");
+            if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        });
+        target.addEventListener("dragleave", () => target.classList.remove("drop-active"));
+        target.addEventListener("drop", (event) => {
+            event.preventDefault();
+            target.classList.remove("drop-active");
+            const key = event.dataTransfer?.getData("application/x-litdb-evidence") || event.dataTransfer?.getData("text/plain") || "";
+            moveEvidenceToOutlineSection(key, target.dataset.outlineDropSectionId || "");
+        });
+    });
 }
 
 const WRITING_STAGE_NOTES = {
@@ -2442,6 +2606,8 @@ function renderOutlineDetail() {
     const retrieval = state.outlineRetrieval[section.id] || {};
     const query = retrieval.query || defaultOutlineQuery(section);
     const contexts = Array.isArray(retrieval.contexts) ? retrieval.contexts : [];
+    const assignedEvidence = assignedSectionEvidence(section);
+    const poolEvidence = allKnownEvidenceItems();
     const selectedKeys = Array.isArray(retrieval.selectedKeys)
         ? retrieval.selectedKeys.filter((key) => contexts.some((item) => item.key === key))
         : contexts.map((item) => item.key);
@@ -2457,8 +2623,22 @@ function renderOutlineDetail() {
                 </div>
             </div>
             <div class="outline-paragraph-shortcut">
+                <div class="outline-pool-summary" title="${escapeHtml(t("outlineEvidencePoolHint"))}">
+                    <span class="outline-pool-icon" aria-hidden="true"></span>
+                    <strong>${escapeHtml(poolEvidence.length)}</strong>
+                </div>
                 <button class="secondary-button small-button" id="outline-add-paragraph" type="button">${escapeHtml(t("addSectionParagraph"))}</button>
                 <small>${escapeHtml(t("addSectionParagraphHint"))}</small>
+            </div>
+        </div>
+        <div class="outline-evidence-panel outline-assigned-panel" data-outline-drop-section-id="${escapeHtml(section.id)}">
+            <div class="compose-evidence-head">
+                <span>${escapeHtml(t("outlineAssignedEvidence"))}</span>
+                <span>${assignedEvidence.length}</span>
+            </div>
+            <div class="outline-drop-zone">${escapeHtml(t("outlineDropEvidence"))}</div>
+            <div class="compose-evidence-list outline-assigned-list">
+                ${assignedEvidence.length ? assignedEvidence.map((context) => renderAssignedOutlineEvidence(section, context)).join("") : `<p class="empty-note">${escapeHtml(t("outlineNoAssignedEvidence"))}</p>`}
             </div>
         </div>
         <div class="retrieval-workspace-card">
@@ -2474,6 +2654,16 @@ function renderOutlineDetail() {
             <div class="outline-actions">
                 <button class="primary-button small-button" id="outline-retrieve" type="button">${escapeHtml(t("retrieveSectionEvidence"))}</button>
                 <button class="secondary-button small-button" id="outline-add-evidence-paragraph" type="button" ${contexts.length ? "" : "disabled"}>${escapeHtml(t("addSectionEvidenceParagraph"))}</button>
+            </div>
+        </div>
+        <div class="outline-evidence-panel outline-pool-panel">
+            <div class="compose-evidence-head">
+                <span>${escapeHtml(t("outlineEvidencePool"))}</span>
+                <span>${poolEvidence.length}</span>
+            </div>
+            <p class="outline-tree-hint">${escapeHtml(t("outlineEvidencePoolHint"))}</p>
+            <div class="compose-evidence-list outline-pool-list">
+                ${poolEvidence.length ? poolEvidence.map((context) => renderPoolEvidenceItem(context)).join("") : `<p class="empty-note">${escapeHtml(t("outlineNoPoolEvidence"))}</p>`}
             </div>
         </div>
         <div class="outline-evidence-panel">
@@ -2512,6 +2702,11 @@ function renderOutlineDetail() {
             state.outlineRetrieval[section.id] = current;
         });
     });
+    els.outlineDetail.querySelectorAll(".outline-remove-assigned").forEach((button) => {
+        button.addEventListener("click", () => removeEvidenceFromOutlineSection(section.id, button.dataset.key || ""));
+    });
+    bindEvidenceDragSources(els.outlineDetail);
+    bindOutlineDropTargets(els.outlineDetail);
 }
 
 function renderOutlinePriorityScope(section) {
@@ -2569,7 +2764,7 @@ function renderOutlineEvidenceChoice(context, index) {
     const selectedKeys = section ? (state.outlineRetrieval[section.id] || {}).selectedKeys : null;
     const checked = !Array.isArray(selectedKeys) || selectedKeys.includes(key);
     return `
-        <label class="compose-evidence-item outline-evidence-item">
+        <label class="compose-evidence-item outline-evidence-item" draggable="true" data-drag-evidence-key="${escapeHtml(key)}">
             <input class="outline-evidence-check" type="checkbox" data-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
             <span>
                 <strong>${escapeHtml(context.citekey ? `@${context.citekey}` : context.pmid ? `PMID ${context.pmid}` : (context.name || t("pdfFiles")))}</strong>
@@ -2578,6 +2773,35 @@ function renderOutlineEvidenceChoice(context, index) {
             </span>
             <button class="text-button outline-add-library" type="button" data-index="${escapeHtml(String(index))}">${escapeHtml(t("addEvidenceToLibrary"))}</button>
         </label>
+    `;
+}
+
+function renderAssignedOutlineEvidence(section, context) {
+    const key = context.key || "";
+    return `
+        <article class="compose-evidence-item outline-assigned-item" draggable="true" data-drag-evidence-key="${escapeHtml(key)}">
+            <span>
+                <strong>${escapeHtml(context.citekey ? `@${context.citekey}` : context.pmid ? `PMID ${context.pmid}` : (context.source_name || context.citation || context.doc_id || t("pdfFiles")))}</strong>
+                <small>${escapeHtml(section.title || context.section || "")}</small>
+                <em>${escapeHtml(context.text || "")}</em>
+            </span>
+            <button class="text-button outline-remove-assigned" type="button" data-key="${escapeHtml(key)}">${escapeHtml(t("removeEvidence"))}</button>
+        </article>
+    `;
+}
+
+function renderPoolEvidenceItem(context) {
+    const key = context.key || "";
+    const assignedSection = state.manuscriptOutline.find((section) => sectionEvidenceKeys(section).includes(key));
+    return `
+        <article class="compose-evidence-item outline-pool-item ${assignedSection ? "is-assigned" : ""}" draggable="true" data-drag-evidence-key="${escapeHtml(key)}">
+            <span class="outline-pool-drag-handle" aria-hidden="true"></span>
+            <span>
+                <strong>${escapeHtml(context.citekey ? `@${context.citekey}` : context.pmid ? `PMID ${context.pmid}` : (context.source_name || context.citation || context.doc_id || t("pdfFiles")))}</strong>
+                <small>${escapeHtml(assignedSection ? assignedSection.title : (context.section || context.citation || ""))}</small>
+                <em>${escapeHtml(context.text || "")}</em>
+            </span>
+        </article>
     `;
 }
 
@@ -2623,7 +2847,7 @@ async function retrieveOutlineEvidence(section) {
         const result = await fetchJson(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question, k: 10, max_sources: 8, module_filters: moduleFilters, priority_scope: priorityScope }),
+            body: JSON.stringify({ question, k: 10, max_sources: 8, module_filters: moduleFilters, priority_scope: priorityScope, user_token: state.userToken }),
         });
         const contexts = (result.contexts || []).map(normalizeOutlineContext);
         state.outlineRetrieval[section.id] = { query: question, contexts, selectedKeys: contexts.map((item) => item.key), moduleFilters, priorityScope };
@@ -2664,10 +2888,11 @@ function confirmedOutlineEvidenceMap() {
         const retrieval = state.outlineRetrieval[section.id] || {};
         const contexts = Array.isArray(retrieval.contexts) ? retrieval.contexts : [];
         const selectedKeys = selectedOutlineEvidenceKeys(section.id);
+        const assigned = assignedSectionEvidence(section);
         return {
             section,
             query: retrieval.query || defaultOutlineQuery(section),
-            evidences: contexts.filter((item) => selectedKeys.includes(item.key)),
+            evidences: assigned.length ? assigned : contexts.filter((item) => selectedKeys.includes(item.key)),
         };
     }).filter((item) => item.evidences.length);
 }
@@ -2681,7 +2906,9 @@ function confirmOutlineEvidenceSelections() {
                 state.evidenceLibrary.push({ ...item, section: group.section.title });
             }
         }
+        group.section.evidenceKeys = group.evidences.map((item) => item.key).filter(Boolean);
     }
+    saveManuscriptOutline();
     saveEvidenceLibrary();
     renderEvidenceLibrary();
     return true;
@@ -3316,6 +3543,7 @@ async function uploadWorkspacePdf(file, uploaderName) {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("uploader_name", uploaderName || state.userName);
+    formData.append("user_token", state.userToken);
     if (requiresPmid) formData.append("pmid", pmid);
     setUploadProgress(t("uploadingPdf"));
     try {
@@ -3543,7 +3771,7 @@ function renderWorkspaceUploads() {
                     </div>
                     <div class="upload-actions">
                         <span class="status-pill status-uploaded">${escapeHtml(localizeUploadStatus(doc.status || "uploaded"))}</span>
-                        ${doc.file_url || doc.pdf_url ? `<a class="icon-button pdf-open-btn" href="${escapeHtml(doc.file_url || doc.pdf_url)}" target="_blank" rel="noopener" title="${escapeHtml(t("openPdf"))}" aria-label="${escapeHtml(t("openPdf"))}">${escapeHtml(fileTypeLabel(doc))}</a>` : ""}
+                        ${workspaceFileUrl(doc) ? `<a class="icon-button pdf-open-btn" href="${escapeHtml(workspaceFileUrl(doc))}" target="_blank" rel="noopener" title="${escapeHtml(t("openPdf"))}" aria-label="${escapeHtml(t("openPdf"))}">${escapeHtml(fileTypeLabel(doc))}</a>` : ""}
                     </div>
                 </div>
             `).join("")}
@@ -3636,7 +3864,9 @@ async function fetchJson(url, options) {
     }
     if (!response.ok) {
         const detail = data.detail || data.error || response.statusText;
-        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+        const error = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+        error.status = response.status;
+        throw error;
     }
     return data;
 }

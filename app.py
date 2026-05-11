@@ -76,6 +76,7 @@ TEAM_USER_ROSTER = [
     {"name": "陈影", "module": ""},
     {"name": "胡鲁诺", "module": ""},
 ]
+ADMIN_USER_NAMES = {"侯星羽", "石慧"}
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 WORKSPACE_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -1220,9 +1221,33 @@ def find_workspace(workspace_id: str) -> dict[str, Any]:
     raise HTTPException(status_code=404, detail="Workspace not found")
 
 
-def public_workspace(workspace: dict[str, Any]) -> dict[str, Any]:
+def user_owns_workspace(workspace: dict[str, Any], user: dict[str, Any] | None, body: dict[str, Any] | None = None) -> bool:
+    if not user:
+        return False
+    owner_id = str(workspace.get("owner_user_id") or "")
+    owner_name = str(workspace.get("owner_name") or workspace.get("created_by") or "").casefold()
+    user_name = str(user.get("name") or "").strip().casefold()
+    if owner_id:
+        return user.get("id") == owner_id
+    return bool(owner_name and user_name and owner_name == user_name)
+
+
+def user_can_access_workspace(workspace: dict[str, Any], user: dict[str, Any] | None) -> bool:
+    return is_admin_user(user) or user_owns_workspace(workspace, user)
+
+
+def require_workspace_access(workspace: dict[str, Any], user: dict[str, Any] | None) -> None:
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    if not user_can_access_workspace(workspace, user):
+        raise HTTPException(status_code=403, detail="Only the workspace owner or an administrator can open this workspace")
+
+
+def public_workspace(workspace: dict[str, Any], viewer_user: dict[str, Any] | None = None) -> dict[str, Any]:
     docs = workspace.get("documents") or []
-    library_type = str(workspace.get("library_type") or workspace.get("type") or "personal")
+    library_type = normalize_library_type(str(workspace.get("library_type") or workspace.get("type") or "personal"))
+    viewer_is_admin = is_admin_user(viewer_user)
+    viewer_is_owner = user_owns_workspace(workspace, viewer_user)
     return {
         "id": workspace.get("id", ""),
         "name": workspace.get("name", ""),
@@ -1235,15 +1260,12 @@ def public_workspace(workspace: dict[str, Any]) -> dict[str, Any]:
         "updated_at": workspace.get("updated_at", ""),
         "document_count": len(docs),
         "requires_pmid": library_type == "team",
+        "can_open": viewer_is_admin or viewer_is_owner,
+        "can_edit": viewer_is_owner,
+        "can_delete": viewer_is_admin or (viewer_is_owner and library_type == "personal"),
+        "is_admin_view": viewer_is_admin and not viewer_is_owner,
         "can_owner_delete": library_type == "personal",
     }
-
-
-def user_owns_workspace(workspace: dict[str, Any], user: dict[str, Any] | None, body: dict[str, Any]) -> bool:
-    owner_id = str(workspace.get("owner_user_id") or "")
-    owner_name = str(workspace.get("owner_name") or workspace.get("created_by") or "").casefold()
-    request_name = str(body.get("user_name") or "").strip().casefold()
-    return bool(user and owner_id and user.get("id") == owner_id) or bool(request_name and request_name == owner_name)
 
 
 def safe_workspace_upload_name(filename: str) -> str:
@@ -1342,12 +1364,17 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return hmac.compare_digest(digest, expected)
 
 
+def is_admin_user(user: dict[str, Any] | None) -> bool:
+    return bool(user and str(user.get("name", "")).strip().casefold() in {name.casefold() for name in ADMIN_USER_NAMES})
+
+
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": user.get("id", ""),
         "name": user.get("name", ""),
         "token": user.get("token", ""),
         "module": user.get("module", ""),
+        "is_admin": is_admin_user(user),
         "must_change_password": not bool(user.get("password_changed")),
         "last_seen_at": user.get("last_seen_at", ""),
     }
@@ -1810,12 +1837,13 @@ async def paper_page(pmid: str, request: Request):
     metadata = detail["metadata"]
     title = metadata.get("title") or f"PMID {pmid}"
     body = detail["body"]
+    safe_pmid = re.sub(r"\D", "", pmid)
     highlight_ids = {
         item.strip()
         for item in request.query_params.get("highlight", "").split(",")
         if item.strip()
     }
-    rendered_body = render_markdown_article(body, highlight_ids, re.sub(r"\D", "", pmid), title)
+    rendered_body = render_markdown_article(body, highlight_ids, safe_pmid, title)
     pdf_upload = detail.get("pdf_upload")
     pdf_link_html = ""
     if pdf_upload:
@@ -1855,6 +1883,14 @@ async def paper_page(pmid: str, request: Request):
             <h1>{html.escape(title)}</h1>
             <dl class="detail-grid">{field_html}</dl>
             {f'<div class="detail-actions">{pdf_link_html}</div>' if pdf_link_html else ''}
+            <section class="paper-note-card article-note-card" data-article-note>
+                <div class="paper-note-head">
+                    <strong data-article-note-title>Notes</strong>
+                    <span class="paper-note-status" id="article-note-status"></span>
+                </div>
+                <textarea id="article-note-input" class="paper-note-input" placeholder="Add your notes for this paper."></textarea>
+                <button class="secondary-button small-button" id="article-note-save" type="button">Save note</button>
+            </section>
             <div class="article-body rendered-markdown">{rendered_body}</div>
         </article>
     </main>
@@ -1865,14 +1901,69 @@ async def paper_page(pmid: str, request: Request):
         }}
         const articleLang = localStorage.getItem("litdb.lang") || "en";
         const text = {{
-            en: {{ add: "Add selected sentence", added: "Added to Evidence Library", removed: "Removed from Evidence Library", hint: "Click a sentence to add it to your Evidence Library.", compose: "Compose", library: "Evidence Library", empty: "No selected sentences.", remove: "Remove" }},
-            zh: {{ add: "加入自选库", added: "已加入自选库", removed: "已从自选库移除", hint: "点击任意句子，可加入你的自选库。", compose: "组文章", library: "自选库", empty: "还没有选择句子。", remove: "移除" }}
+            en: {{ add: "Add selected sentence", added: "Added to Evidence Library", removed: "Removed from Evidence Library", hint: "Click a sentence to add it to your Evidence Library.", compose: "Compose", library: "Evidence Library", empty: "No selected sentences.", remove: "Remove", noteTitle: "Paper notes", notePlaceholder: "Add your notes for this paper.", saveNote: "Save note", noteSaved: "Saved", noteSaveFailed: "Save failed", loginForNote: "Log in to save notes." }},
+            zh: {{ add: "加入自选库", added: "已加入自选库", removed: "已从自选库移除", hint: "点击任意句子，可加入你的自选库。", compose: "组文章", library: "自选库", empty: "还没有选择句子。", remove: "移除", noteTitle: "文献备注", notePlaceholder: "在这里记录这篇文献的要点、疑问或后续处理意见。", saveNote: "保存备注", noteSaved: "已保存", noteSaveFailed: "保存失败", loginForNote: "登录后可保存备注。" }}
         }};
         const labels = text[articleLang] || text.en;
         labels.openPdf = labels.openPdf || (articleLang === "zh" ? "打开 PDF" : "Open PDF");
         document.querySelectorAll("[data-article-open-pdf]").forEach((link) => {{
             link.textContent = labels.openPdf;
         }});
+        const articlePmid = "{html.escape(safe_pmid)}";
+        const articleUserToken = localStorage.getItem("litdb.userToken") || "";
+        const articleUserName = localStorage.getItem("litdb.userName") || "";
+        const articleNoteInput = document.getElementById("article-note-input");
+        const articleNoteStatus = document.getElementById("article-note-status");
+        const articleNoteSave = document.getElementById("article-note-save");
+        const articleNoteTitle = document.querySelector("[data-article-note-title]");
+        if (articleNoteTitle) articleNoteTitle.textContent = labels.noteTitle;
+        if (articleNoteInput) articleNoteInput.placeholder = labels.notePlaceholder;
+        if (articleNoteSave) articleNoteSave.textContent = labels.saveNote;
+        function setArticleNoteStatus(message) {{
+            if (!articleNoteStatus) return;
+            articleNoteStatus.textContent = message || "";
+        }}
+        async function loadArticleNote() {{
+            if (!articleNoteInput || !articlePmid) return;
+            if (!articleUserToken) {{
+                setArticleNoteStatus(labels.loginForNote);
+                return;
+            }}
+            try {{
+                const response = await fetch(`/api/papers/${{encodeURIComponent(articlePmid)}}/note?user_token=${{encodeURIComponent(articleUserToken)}}`);
+                if (!response.ok) return;
+                const data = await response.json();
+                articleNoteInput.value = data.note?.note || "";
+            }} catch (error) {{
+                console.warn("Unable to load paper note", error);
+            }}
+        }}
+        async function saveArticleNote() {{
+            if (!articleNoteInput || !articlePmid) return;
+            if (!articleUserToken) {{
+                setArticleNoteStatus(labels.loginForNote);
+                return;
+            }}
+            setArticleNoteStatus("...");
+            try {{
+                const response = await fetch(`/api/papers/${{encodeURIComponent(articlePmid)}}/note`, {{
+                    method: "PATCH",
+                    headers: {{ "Content-Type": "application/json" }},
+                    body: JSON.stringify({{
+                        note: articleNoteInput.value,
+                        user_token: articleUserToken,
+                        user_name: articleUserName,
+                    }}),
+                }});
+                if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
+                setArticleNoteStatus(labels.noteSaved);
+            }} catch (error) {{
+                console.warn("Unable to save paper note", error);
+                setArticleNoteStatus(labels.noteSaveFailed);
+            }}
+        }}
+        articleNoteSave?.addEventListener("click", saveArticleNote);
+        loadArticleNote();
         const notice = document.createElement("div");
         notice.className = "article-selection-toast";
         notice.textContent = labels.hint;
@@ -2249,6 +2340,24 @@ async def api_paper_detail(pmid: str):
     return get_paper_by_pmid(pmid)
 
 
+@app.get("/api/papers/{pmid}/note")
+async def api_paper_note(pmid: str, request: Request):
+    safe_pmid = re.sub(r"\D", "", pmid)
+    if not safe_pmid:
+        raise HTTPException(status_code=400, detail="A numeric PMID is required")
+    user = find_user_by_token(request.query_params.get("user_token"))
+    if not user:
+        return {"note": {"pmid": safe_pmid, "note": "", "updated_at": ""}}
+    note = paper_notes_for_user(user).get(safe_pmid) or {}
+    return {
+        "note": {
+            "pmid": safe_pmid,
+            "note": note.get("note", ""),
+            "updated_at": note.get("updated_at", ""),
+        }
+    }
+
+
 @app.patch("/api/papers/{pmid}/note")
 async def api_update_paper_note(pmid: str, request: Request):
     safe_pmid = re.sub(r"\D", "", pmid)
@@ -2385,13 +2494,17 @@ async def api_paper_evidence(pmid: str):
 
 
 @app.get("/api/workspaces")
-async def api_workspaces():
+async def api_workspaces(request: Request):
+    user = find_user_by_token(request.query_params.get("user_token"))
     workspaces = sorted(
         load_workspaces(),
         key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""),
         reverse=True,
     )
-    return {"workspaces": [public_workspace(item) for item in workspaces]}
+    if not user:
+        return {"workspaces": []}
+    visible = workspaces if is_admin_user(user) else [item for item in workspaces if user_owns_workspace(item, user)]
+    return {"workspaces": [public_workspace(item, user) for item in visible], "is_admin": is_admin_user(user)}
 
 
 @app.post("/api/workspaces")
@@ -2405,6 +2518,8 @@ async def api_create_workspace(request: Request):
         raise HTTPException(status_code=400, detail="Workspace name is required")
     library_type = normalize_library_type(str(body.get("library_type", "personal")))
     owner = find_user_by_token(str(body.get("user_token") or ""))
+    if not owner:
+        raise HTTPException(status_code=401, detail="Login required")
     now = datetime.now().isoformat()
     workspace_id = f"{slugify_workspace_name(name)}-{uuid.uuid4().hex[:8]}"
     workspace = {
@@ -2423,7 +2538,7 @@ async def api_create_workspace(request: Request):
     workspaces.append(workspace)
     save_workspaces(workspaces)
     (workspace_dir(workspace_id) / "pdfs").mkdir(parents=True, exist_ok=True)
-    return {"workspace": public_workspace(workspace)}
+    return {"workspace": public_workspace(workspace, owner)}
 
 
 @app.patch("/api/workspaces/{workspace_id}")
@@ -2441,7 +2556,7 @@ async def api_update_workspace(workspace_id: str, request: Request):
             break
     if not target:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    if not user_owns_workspace(target, user, body):
+    if not user_owns_workspace(target, user):
         raise HTTPException(status_code=403, detail="Only the workspace owner can edit this workspace")
     name = re.sub(r"\s+", " ", str(body.get("name", target.get("name", ""))).strip())
     if not name:
@@ -2450,7 +2565,7 @@ async def api_update_workspace(workspace_id: str, request: Request):
     target["description"] = str(body.get("description", target.get("description", ""))).strip()[:300]
     target["updated_at"] = datetime.now().isoformat()
     save_workspaces(workspaces)
-    return {"workspace": public_workspace(target)}
+    return {"workspace": public_workspace(target, user)}
 
 
 @app.delete("/api/workspaces/{workspace_id}")
@@ -2460,12 +2575,12 @@ async def api_delete_workspace(workspace_id: str, request: Request):
         body = await request.json()
     except json.JSONDecodeError:
         body = {}
-    library_type = normalize_library_type(str(workspace.get("library_type", "personal")))
-    if library_type == "team":
-        raise HTTPException(status_code=403, detail="Team workspaces can only be deleted by administrators")
     user = find_user_by_token(str(body.get("user_token") or ""))
-    if not user_owns_workspace(workspace, user, body):
-        raise HTTPException(status_code=403, detail="Only the workspace owner can delete this workspace")
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    library_type = normalize_library_type(str(workspace.get("library_type", "personal")))
+    if not is_admin_user(user) and (library_type == "team" or not user_owns_workspace(workspace, user)):
+        raise HTTPException(status_code=403, detail="Only the workspace owner or an administrator can delete this workspace")
     target_dir = workspace_dir(workspace_id)
     workspaces = [item for item in load_workspaces() if item.get("id") != workspace_id]
     save_workspaces(workspaces)
@@ -2475,15 +2590,17 @@ async def api_delete_workspace(workspace_id: str, request: Request):
 
 
 @app.get("/api/workspaces/{workspace_id}/pdfs")
-async def api_workspace_pdfs(workspace_id: str):
+async def api_workspace_pdfs(workspace_id: str, request: Request):
     workspace = find_workspace(workspace_id)
+    user = find_user_by_token(request.query_params.get("user_token"))
+    require_workspace_access(workspace, user)
     documents = [
         public_workspace_document(workspace, document)
         for document in workspace.get("documents", [])
         if workspace_document_path(workspace, document)
     ]
     documents.sort(key=lambda item: str(item.get("uploaded_at", "")), reverse=True)
-    return {"workspace": public_workspace(workspace), "documents": documents}
+    return {"workspace": public_workspace(workspace, user), "documents": documents}
 
 
 @app.post("/api/workspaces/{workspace_id}/pdfs")
@@ -2491,9 +2608,12 @@ async def api_workspace_upload_pdf(
     workspace_id: str,
     file: UploadFile = File(...),
     uploader_name: str = Form(""),
+    user_token: str = Form(""),
     pmid: str = Form(""),
 ):
     workspace = find_workspace(workspace_id)
+    user = find_user_by_token(user_token)
+    require_workspace_access(workspace, user)
     suffix = ensure_supported_upload(file.filename)
     file_type = upload_file_type(file.filename)
     library_type = normalize_library_type(str(workspace.get("library_type", "personal")))
@@ -2542,8 +2662,10 @@ async def api_workspace_upload_pdf(
 
 
 @app.get("/api/workspaces/{workspace_id}/pdfs/{document_id}/file")
-async def api_workspace_pdf_file(workspace_id: str, document_id: str):
+async def api_workspace_pdf_file(workspace_id: str, document_id: str, request: Request):
     workspace = find_workspace(workspace_id)
+    user = find_user_by_token(request.query_params.get("user_token"))
+    require_workspace_access(workspace, user)
     target = None
     for document in workspace.get("documents", []):
         if document.get("id") == document_id:
@@ -2569,6 +2691,8 @@ async def api_workspace_query(workspace_id: str, request: Request):
         body = await request.json()
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
+    user = find_user_by_token(str(body.get("user_token") or ""))
+    require_workspace_access(workspace, user)
     question = str(body.get("question", "")).strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question is required")
